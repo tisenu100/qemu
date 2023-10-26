@@ -13,14 +13,9 @@
 #ifndef HW_SOUTHBRIDGE_ICH4_H
 #define HW_SOUTHBRIDGE_ICH4_H
 
+#include "hw/acpi/intel_ich4_acpi.h"
 #include "hw/pci/pci_device.h"
 #include "hw/rtc/mc146818rtc.h"
-
-/* PIRQRC[A:D]: PIRQx Route Control Registers */
-#define ICH4_PIRQCA 0x60
-#define ICH4_PIRQCB 0x61
-#define ICH4_PIRQCC 0x62
-#define ICH4_PIRQCD 0x63
 
 /*
  * Reset Control Register: PCI-accessible ISA-Compatible Register at address
@@ -48,8 +43,13 @@ struct ICH4State {
 
     /* IO memory region for Reset Control Register (ICH4_RCR_IOPORT) */
     MemoryRegion rcr_mem;
+
+    Intel_ICH4_ACPI_State *acpi;
 };
 typedef struct ICH4State ICH4State;
+
+/* Meant to link the ACPI device formed on pc_init1 with the LPC device so we can remap ACPI I/O */
+void intel_ich4_link_acpi(ICH4State *lpc, Intel_ICH4_ACPI_State *acpi);
 
 #define TYPE_ICH4_PCI_DEVICE "intel-ich4-lpc"
 DECLARE_INSTANCE_CHECKER(ICH4State, ICH4_PCI_DEVICE,

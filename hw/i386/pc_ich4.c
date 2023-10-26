@@ -51,7 +51,6 @@
 #include "hw/i2c/smbus_eeprom.h"
 #include "exec/memory.h"
 #include "hw/acpi/acpi.h"
-#include "hw/acpi/piix4.h"
 #include "hw/usb/hcd-uhci.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
@@ -65,6 +64,7 @@
 
 #include "hw/pci-host/intel_845pe.h"
 #include "hw/southbridge/ich4_lpc.h"
+#include "hw/acpi/intel_ich4_acpi.h"
 #include "qemu/qemu-print.h"
 
 #define MAX_IDE_BUS 2
@@ -77,7 +77,7 @@ static int pc_pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
 {
     int slot_addend;
     slot_addend = PCI_SLOT(PCI_DEVFN(0, 0)) - 1;
-    return (pci_intx + slot_addend) & 3;
+    return (pci_intx + slot_addend) & 7;
 }
 
 static void pc_init1(MachineState *machine, const char *host_type, const char *pci_type)
@@ -157,12 +157,15 @@ static void pc_init1(MachineState *machine, const char *host_type, const char *p
     pc_machine_init_sgx_epc(pcms);
     x86_cpus_init(x86ms, pcmc->default_cpu_version);
 
+    /* KVM */
     if (kvm_enabled() && pcmc->kvmclock_enabled) {
+        qemu_printf("PC: KVM Detected. Starting Clock...\n");
         kvmclock_create(pcmc->kvmclock_create_always);
     }
 
     /* Initialize the PCI bus */
     qemu_printf("PC: Loading PCI bus...\n");
+    PCIBus *pci_bus;
     Object *phb;
 
     pci_memory = g_new(MemoryRegion, 1);
@@ -188,10 +191,10 @@ static void pc_init1(MachineState *machine, const char *host_type, const char *p
 
     object_property_set_uint(phb, PCI_HOST_ABOVE_4G_MEM_SIZE, x86ms->above_4g_mem_size, &error_fatal); /* Extended Memory */
 
-    object_property_set_str(phb, I845PE_HOST_PROP_PCI_TYPE, pci_type, &error_fatal); /* Set the Component type of the 845PE */
+    object_property_set_str(phb, INTEL_845PE_HOST_PROP_PCI_TYPE, pci_type, &error_fatal); /* Set the Component type of the 845PE */
     sysbus_realize_and_unref(SYS_BUS_DEVICE(phb), &error_fatal);
 
-    PCIBus *pci_bus = PCI_BUS(qdev_get_child_bus(DEVICE(phb), "pci.0")); /* Create Bus 0 */
+    pci_bus = PCI_BUS(qdev_get_child_bus(DEVICE(phb), "pci.0")); /* Create Bus 0 */
     pci_bus_map_irqs(pci_bus, pc_pci_slot_get_pirq); /* Assign PIRQ's to the slots */
     pcms->bus = pci_bus;
 
@@ -204,29 +207,31 @@ static void pc_init1(MachineState *machine, const char *host_type, const char *p
     pc_memory_init(pcms, system_memory, rom_memory, hole64_size);
 
     /* IRQ Interrupts */
-    qemu_printf("PC: Recieving Interrupts...\n");
+    qemu_printf("PC: Receiving Interrupts...\n");
     gsi_state = pc_gsi_create(&x86ms->gsi, pcmc->pci_enabled);
 
     /* Initialize the ICH4 */
     qemu_printf("PC: Loading Intel ICH4 LPC...\n");
-    ICH4State *ich4;
+    ICH4State *lpc;
     PCIDevice *pci_dev;
 
     pci_dev = pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1f, 0), TYPE_ICH4_DEVICE); /* Assign the LPC Bridge as a PCI device */
 
-    ich4 = ICH4_PCI_DEVICE(pci_dev); /* Intel ICH4 LPC Bridge */
-    ich4->pic = x86ms->gsi;
+    lpc = ICH4_PCI_DEVICE(pci_dev); /* Intel ICH4 LPC Bridge */
+    lpc->pic = x86ms->gsi;
 
     /* Mount to the LPC BUS */
     qemu_printf("PC: Mount Intel ICH4 LPC to the proper LPC Bus\n");
-    ISABus *isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(ich4), "isa.0"));
+    ISABus *isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(lpc), "isa.0"));
 
+    /* Mount the RTC */
     rtc_state = ISA_DEVICE(object_resolve_path_component(OBJECT(pci_dev), "rtc"));
 
+    /* Set up LPC Interrupts */
     isa_bus_register_input_irqs(isa_bus, x86ms->gsi);
 
     /* Initialize the PIC */
-    qemu_printf("PC: Loading i8259 Compatible PIC\n");
+    qemu_printf("PC: Loading i8259 Compatible PIC...\n");
     if (x86ms->pic == ON_OFF_AUTO_ON || x86ms->pic == ON_OFF_AUTO_AUTO) {
         pc_i8259_create(isa_bus, gsi_state->i8259_irq);
     }
@@ -239,25 +244,23 @@ static void pc_init1(MachineState *machine, const char *host_type, const char *p
         x86_register_ferr_irq(x86ms->gsi[13]);
     }
 
-    pc_vga_init(isa_bus, pci_bus);
-
     assert(pcms->vmport != ON_OFF_AUTO__MAX);
     if (pcms->vmport == ON_OFF_AUTO_AUTO) {
         pcms->vmport = ON_OFF_AUTO_ON;
     }
 
     /* init basic PC hardware */
-    pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, true, 0x4);
-
+    pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, true, 0x08);
 
     /* IDE Compatible Drives */
-//    PCIDevice *ide = pci_create_simple(pci_bus, PCI_DEVFN(0x07, 0x01), TYPE_PIIX3_IDE);
-//    BusState *idebus[MAX_IDE_BUS];
-//    pci_ide_create_devs(ide);
-//    idebus[0] = qdev_get_child_bus(&ide->qdev, "ide.0");
-//    idebus[1] = qdev_get_child_bus(&ide->qdev, "ide.1");
+    qemu_printf("PC: Loading IDE...\n");
+    PCIDevice *ide = pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 0x01), TYPE_INTEL_ICH4_IDE);
+    BusState *idebus[2];
+    pci_ide_create_devs(ide);
+    idebus[0] = qdev_get_child_bus(&ide->qdev, "ide.0");
+    idebus[1] = qdev_get_child_bus(&ide->qdev, "ide.1");
 
-    pc_cmos_init(pcms, NULL, NULL, rtc_state);
+    pc_cmos_init(pcms, idebus[0], idebus[1], rtc_state);
 
 
     /* Create UHCI Compatible Controllers */
@@ -267,47 +270,44 @@ static void pc_init1(MachineState *machine, const char *host_type, const char *p
 
 
     /* ACPI */
-    if (pcmc->pci_enabled && x86_machine_is_acpi_enabled(X86_MACHINE(pcms))) {
-        PCIDevice *piix4_pm;
+    PCIDevice *intel_ich4_acpi;
 
-        /* We expect a prebaked ACPI Table from the BIOS */
-        pcms->acpi_build_enabled = 0;
+    /* We expect a prebaked ACPI Table from the BIOS */
+    pcms->acpi_build_enabled = 0;
 
-        /* SMI & SCI */
-        smi_irq = qemu_allocate_irq(pc_acpi_smi_interrupt, first_cpu, 0);
+    /* Create a PIIX4 Compatible ACPI device */
+    intel_ich4_acpi = pci_new(PCI_DEVFN(0x1f, 3), TYPE_INTEL_ICH4_ACPI);
+    Intel_ICH4_ACPI_State *acpi = INTEL_ICH4_ACPI(intel_ich4_acpi);
 
-        /* Create a PIIX4 Compatible ACPI device */
-        piix4_pm = pci_new(PCI_DEVFN(0x1f, 9), TYPE_PIIX4_PM);
+    /* Checks if SMM exists?? We do a Pentium 4 machine which is mandatory. */
+    qdev_prop_set_bit(DEVICE(intel_ich4_acpi), "smm-enabled", x86_machine_is_smm_enabled(x86ms));
 
-        /* Set the PIIX4 Compatible SMBus I/O Base to 0xb100. This has to be removed and be allowed by the SMBus Controller to set the I/O Base */
-        qdev_prop_set_uint32(DEVICE(piix4_pm), "smb_io_base", 0xb100);
+    /* Probably to provoke an initialization */
+    pci_realize_and_unref(intel_ich4_acpi, pci_bus, &error_fatal);
 
-        /* Checks if SMM exists?? We do a Pentium 4 machine which is mandatory. */
-        qdev_prop_set_bit(DEVICE(piix4_pm), "smm-enabled", x86_machine_is_smm_enabled(x86ms));
+    /* Set the ACPI IRQ pin to 9 like PIIX4 design. Normally we got to allow the ACPI to remap from the MCH */
+    qdev_connect_gpio_out(DEVICE(intel_ich4_acpi), 0, x86ms->gsi[9]);
 
-        /* Probably to provoke an initialization */
-        pci_realize_and_unref(piix4_pm, pci_bus, &error_fatal);
-
-        /* Set the ACPI IRQ pin to 9 like PIIX4 design. Normally we got to allow the ACPI to remap from the MCH */
-        qdev_connect_gpio_out(DEVICE(piix4_pm), 0, x86ms->gsi[9]);
-
-        /* SMI IRQ */
-        qdev_connect_gpio_out_named(DEVICE(piix4_pm), "smi-irq", 0, smi_irq);
+    /* SMI Trigger */
+    smi_irq = qemu_allocate_irq(pc_acpi_smi_interrupt, first_cpu, 0);
+    qdev_connect_gpio_out_named(DEVICE(intel_ich4_acpi), "smi-irq", 0, smi_irq);
 
     /* SMBus */
-        /* Initialize the SMBus*/
-        pcms->smbus = I2C_BUS(qdev_get_child_bus(DEVICE(piix4_pm), "i2c"));
+    /* Initialize the SMBus*/
+    pcms->smbus = I2C_BUS(qdev_get_child_bus(DEVICE(intel_ich4_acpi), "i2c"));
 
-        /* Intel 845PE utilizes DDR Memory */
-        uint8_t *spd = spd_data_generate(DDR, machine->ram_size);
+    /* Intel 845PE utilizes DDR Memory */
+    uint8_t *spd = spd_data_generate(DDR, machine->ram_size);
 
-        /* Initialize the SMBus EEPROM data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
-        smbus_eeprom_init(pcms->smbus, 8, spd, 0);
-        
+    /* Initialize the SMBus SPD data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
+    smbus_eeprom_init_one(pcms->smbus, 0x50, spd);       
 
-        object_property_add_link(OBJECT(machine), PC_MACHINE_ACPI_DEVICE_PROP, TYPE_HOTPLUG_HANDLER, (Object **)&x86ms->acpi_dev, object_property_allow_set_link, OBJ_PROP_LINK_STRONG);
-        object_property_set_link(OBJECT(machine), PC_MACHINE_ACPI_DEVICE_PROP, OBJECT(piix4_pm), &error_abort);
-    }
+//    object_property_add_link(OBJECT(machine), PC_MACHINE_ACPI_DEVICE_PROP, TYPE_HOTPLUG_HANDLER, (Object **)&x86ms->acpi_dev, object_property_allow_set_link, OBJ_PROP_LINK_STRONG);
+//    object_property_set_link(OBJECT(machine), PC_MACHINE_ACPI_DEVICE_PROP, OBJECT(intel_ich4_acpi), &error_abort);
+
+    /* Link ACPIState with the LPC so we can remap it's I/O base */
+    intel_ich4_link_acpi(lpc, acpi);
+
 }
 
 #define DEFINE_ICH4_MACHINE(suffix, name, compatfn, optionfn) \

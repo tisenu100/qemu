@@ -23,6 +23,7 @@
 #include "hw/i2c/pm_smbus.h"
 #include "hw/i2c/smbus_master.h"
 #include "migration/vmstate.h"
+#include "qemu/qemu-print.h"
 
 #define SMBHSTSTS       0x00
 #define SMBHSTCNT       0x02
@@ -82,7 +83,8 @@ static void smb_transaction(PMSMBus *s)
     I2CBus *bus = s->smbus;
     int ret;
 
-    SMBUS_DPRINTF("SMBus trans addr=0x%02x prot=0x%02x\n", addr, prot);
+//    SMBUS_DPRINTF("SMBus trans addr=0x%02x prot=0x%02x\n", addr, prot);
+      qemu_printf("SMBus trans addr=0x%02x prot=0x%02x\n", addr, prot);
     /* Transaction isn't exec if STS_DEV_ERR bit set */
     if ((s->smb_stat & STS_DEV_ERR) != 0)  {
         goto error;

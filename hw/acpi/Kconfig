@@ -35,6 +35,12 @@ config ACPI_PIIX4
     select ACPI_SMBUS
     select APM
 
+config ACPI_INTEL_ICH4
+    bool
+    select ACPI
+    select ACPI_SMBUS
+    select APM
+
 config ACPI_PCIHP
     bool
     depends on ACPI

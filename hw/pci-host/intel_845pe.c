@@ -40,10 +40,9 @@
 
 #include "hw/pci-host/intel_845pe.h"
 
-OBJECT_DECLARE_SIMPLE_TYPE(I845PEState, INTEL_845PE_HOST_BRIDGE)
+OBJECT_DECLARE_SIMPLE_TYPE(Intel_845PE_State, INTEL_845PE_HOST_BRIDGE)
 
-
-struct I845PEState {
+struct Intel_845PE_State {
     PCIHostState parent_obj;
 
     MemoryRegion *system_memory;
@@ -61,33 +60,16 @@ struct I845PEState {
 
 static void intel_845pe_realize(PCIDevice *dev, Error **errp)
 {
-    dev->config[0x04] = 0x06;
-    dev->config[0x06] = 0x90;
-    dev->config[0x0b] = 0x06;
-    dev->config[0x10] = 0x08;
-    dev->config[0x34] = 0xe4;
-    dev->config[0x9d] = 0x02;
-    dev->config[0x9e] = 0x38;
-    dev->config[0xa0] = 0x02;
-    dev->config[0xa2] = 0x20;
-    dev->config[0xa4] = 0x17;
-    dev->config[0xa5] = 0x02;
-    dev->config[0xa7] = 0x1f;
-    dev->config[0xe4] = 0x09;
-    dev->config[0xe5] = 0xa0;
-    dev->config[0xe6] = 0x05;
-    dev->config[0xe7] = 0x01;
+    qemu_printf("Intel 845PE MCH: I got realized!\n");
 
     /* Qemu does this on the 440FX. Declare we got no IOMMU support */
     if (object_property_get_bool(qdev_get_machine(), "iommu", NULL))
         warn_report("Intel 845PE: IOMMU is not supported!");
 }
 
-static void intel_845pe_smram(PCI845PEState *d)
+static void intel_845pe_smram(Intel_845PE_PCI_State *d)
 {
-    PCIDevice *pd = PCI_DEVICE(d);
-
-    memory_region_transaction_begin();
+//    PCIDevice *pd = PCI_DEVICE(d);
 
     /*
         Per the Intel 845PE datasheet on Page 65:
@@ -104,14 +86,14 @@ static void intel_845pe_smram(PCI845PEState *d)
         We just implement whatever Qemu needs according to the 440FX. The BIOS use the low SMRAM anyways.
     */
 
-    memory_region_transaction_begin();
-    memory_region_set_enabled(&d->smram_region, pd->config[0x9d] & 0x40); /* Bit 6 */
-    memory_region_set_enabled(&d->smram, pd->config[0x9d] & 0x10); /* Bit 3 */
+//    memory_region_transaction_begin();
+//    memory_region_set_enabled(&d->smram_region, pd->config[0x9d] & 0x40); /* Bit 6 */
+//    memory_region_set_enabled(&d->smram, pd->config[0x9d] & 0x10); /* Bit 3 */
 //    memory_region_set_enabled(&d->high_smram, pd->config[0x9e] & 0x80); /* For High SMRAM. Page 66 of the Intel 845PE datasheet. */
-    memory_region_transaction_commit();
+//    memory_region_transaction_commit();
 }
 
-static void intel_845pe_pam(PCI845PEState *d)
+static void intel_845pe_pam(Intel_845PE_PCI_State *d)
 {
     PCIDevice *pd = PCI_DEVICE(d);
 
@@ -123,15 +105,11 @@ static void intel_845pe_pam(PCI845PEState *d)
         pam_update(&d->pam_regions[i], i, pd->config[0x90 + DIV_ROUND_UP(i, 2)]);
     
     memory_region_transaction_commit();
-
 }
 
-static void intel_845pe_write_config(PCIDevice *dev,
-                                uint32_t address, uint32_t val, int len)
+static void intel_845pe_write_config(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
-    PCI845PEState *d = INTEL_845PE_PCI_DEVICE(dev);
-
-    pci_default_write_config(dev, address, val, len);
+    Intel_845PE_PCI_State *d = INTEL_845PE_PCI_DEVICE(dev);
 
     for(int i = 0; i < len; i++){
         int ro_only = 0;
@@ -155,7 +133,7 @@ static void intel_845pe_write_config(PCIDevice *dev,
             case 0x2d:
             case 0x2e:
             case 0x2f:
-                if(new_val != 0)
+                if(dev->config[address + i] != 0) /* After Subsystem ID is programmed, it cannot be reprogrammed again */
                     ro_only = 1;
             break;
 
@@ -271,6 +249,7 @@ static void intel_845pe_write_config(PCIDevice *dev,
         }
 
         if(!ro_only) {
+            pci_default_write_config(dev, address, val, len);
             dev->config[address + i] = new_val;
             qemu_printf("Intel 845PE MCH: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
@@ -299,7 +278,7 @@ static void intel_845pe_write_config(PCIDevice *dev,
 
 static int intel_845pe_post_load(void *opaque, int version_id)
 {
-    PCI845PEState *dev = opaque;
+    Intel_845PE_PCI_State *dev = opaque;
 
     intel_845pe_pam(dev);
     intel_845pe_smram(dev);
@@ -312,7 +291,7 @@ static const VMStateDescription vmstate_intel_845pe = {
     .minimum_version_id = 3,
     .post_load = intel_845pe_post_load,
     .fields = (VMStateField[]) {
-        VMSTATE_PCI_DEVICE(parent_obj, PCI845PEState),
+        VMSTATE_PCI_DEVICE(parent_obj, Intel_845PE_PCI_State),
         /* Used to be smm_enabled, which was basically always zero because
          * SeaBIOS hardly uses SMM.  SMRAM is now handled by CPU code.
          */
@@ -325,7 +304,7 @@ static void intel_845pe_pcihost_get_pci_hole_start(Object *obj, Visitor *v,
                                               const char *name, void *opaque,
                                               Error **errp)
 {
-    I845PEState *s = INTEL_845PE_HOST_BRIDGE(obj);
+    Intel_845PE_State *s = INTEL_845PE_HOST_BRIDGE(obj);
     uint64_t val64;
     uint32_t value;
 
@@ -339,7 +318,7 @@ static void intel_845pe_pcihost_get_pci_hole_end(Object *obj, Visitor *v,
                                             const char *name, void *opaque,
                                             Error **errp)
 {
-    I845PEState *s = INTEL_845PE_HOST_BRIDGE(obj);
+    Intel_845PE_State *s = INTEL_845PE_HOST_BRIDGE(obj);
     uint64_t val64;
     uint32_t value;
 
@@ -359,7 +338,7 @@ static void intel_845pe_pcihost_get_pci_hole_end(Object *obj, Visitor *v,
 static uint64_t intel_845pe_pcihost_get_pci_hole64_start_value(Object *obj)
 {
     PCIHostState *h = PCI_HOST_BRIDGE(obj);
-    I845PEState *s = INTEL_845PE_HOST_BRIDGE(obj);
+    Intel_845PE_State *s = INTEL_845PE_HOST_BRIDGE(obj);
     Range w64;
     uint64_t value;
 
@@ -391,7 +370,7 @@ static void intel_845pe_pcihost_get_pci_hole64_end(Object *obj, Visitor *v,
                                               Error **errp)
 {
     PCIHostState *h = PCI_HOST_BRIDGE(obj);
-    I845PEState *s = INTEL_845PE_HOST_BRIDGE(obj);
+    Intel_845PE_State *s = INTEL_845PE_HOST_BRIDGE(obj);
     uint64_t hole64_start = intel_845pe_pcihost_get_pci_hole64_start_value(obj);
     Range w64;
     uint64_t value, hole64_end;
@@ -407,44 +386,55 @@ static void intel_845pe_pcihost_get_pci_hole64_end(Object *obj, Visitor *v,
 
 static void intel_845pe_pcihost_initfn(Object *obj)
 {
-    I845PEState *s = INTEL_845PE_HOST_BRIDGE(obj);
+    Intel_845PE_State *s = INTEL_845PE_HOST_BRIDGE(obj);
     PCIHostState *phb = PCI_HOST_BRIDGE(obj);
 
-    memory_region_init_io(&phb->conf_mem, obj, &pci_host_conf_le_ops, phb,
-                          "pci-conf-idx", 4);
-    memory_region_init_io(&phb->data_mem, obj, &pci_host_data_le_ops, phb,
-                          "pci-conf-data", 4);
+    memory_region_init_io(&phb->conf_mem, obj, &pci_host_conf_le_ops, phb, "pci-conf-idx", 4);
+    memory_region_init_io(&phb->data_mem, obj, &pci_host_data_le_ops, phb, "pci-conf-data", 4);
 
     /* Entire Memory Block */
-    object_property_add_link(obj, PCI_HOST_PROP_RAM_MEM, TYPE_MEMORY_REGION,
-                             (Object **) &s->ram_memory,
-                             qdev_prop_allow_set_link_before_realize, 0);
+    object_property_add_link(obj, PCI_HOST_PROP_RAM_MEM, TYPE_MEMORY_REGION, (Object **) &s->ram_memory, qdev_prop_allow_set_link_before_realize, 0);
 
     /* PCI Memory Range */
-    object_property_add_link(obj, PCI_HOST_PROP_PCI_MEM, TYPE_MEMORY_REGION,
-                             (Object **) &s->pci_address_space,
-                             qdev_prop_allow_set_link_before_realize, 0);
+    object_property_add_link(obj, PCI_HOST_PROP_PCI_MEM, TYPE_MEMORY_REGION, (Object **) &s->pci_address_space, qdev_prop_allow_set_link_before_realize, 0);
 
     /* System Memory Space */
-    object_property_add_link(obj, PCI_HOST_PROP_SYSTEM_MEM, TYPE_MEMORY_REGION,
-                             (Object **) &s->system_memory,
-                             qdev_prop_allow_set_link_before_realize, 0);
+    object_property_add_link(obj, PCI_HOST_PROP_SYSTEM_MEM, TYPE_MEMORY_REGION, (Object **) &s->system_memory, qdev_prop_allow_set_link_before_realize, 0);
 
     /* I/O Memory */
-    object_property_add_link(obj, PCI_HOST_PROP_IO_MEM, TYPE_MEMORY_REGION,
-                             (Object **) &s->io_memory,
-                             qdev_prop_allow_set_link_before_realize, 0);
+    object_property_add_link(obj, PCI_HOST_PROP_IO_MEM, TYPE_MEMORY_REGION, (Object **) &s->io_memory, qdev_prop_allow_set_link_before_realize, 0);
+}
+
+static void intel_845pe_reset(DeviceState *s)
+{
+    PCIDevice *dev = PCI_DEVICE(s);
+
+    dev->config[0x04] = 0x06;
+    dev->config[0x06] = 0x90;
+    dev->config[0x0b] = 0x06;
+    dev->config[0x10] = 0x08;
+    dev->config[0x34] = 0xe4;
+    dev->config[0x9d] = 0x02;
+    dev->config[0x9e] = 0x38;
+    dev->config[0xa0] = 0x02;
+    dev->config[0xa2] = 0x20;
+    dev->config[0xa4] = 0x17;
+    dev->config[0xa5] = 0x02;
+    dev->config[0xa7] = 0x1f;
+    dev->config[0xe4] = 0x09;
+    dev->config[0xe5] = 0xa0;
+    dev->config[0xe6] = 0x05;
+    dev->config[0xe7] = 0x01;
 }
 
 static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
 {
     ERRP_GUARD();
-    I845PEState *s = INTEL_845PE_HOST_BRIDGE(dev);
+    Intel_845PE_State *s = INTEL_845PE_HOST_BRIDGE(dev);
     PCIHostState *phb = PCI_HOST_BRIDGE(dev);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
-    PCIBus *pci_bus;
     PCIDevice *d;
-    PCI845PEState *f;
+    Intel_845PE_PCI_State *f;
 
     /* Intel 845PE speaks on registers Cf8h & Cfch */
     memory_region_add_subregion(s->io_memory, 0xcf8, &phb->conf_mem);
@@ -458,20 +448,22 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     memory_region_add_coalescing(&phb->conf_mem, 0, 4);
     qemu_printf("Intel 845PE MCH: PCI bus is listening at ports 0xcf8h\n");
 
+    /* Form Bus 0 */
+    PCIBus *pci_bus;
     pci_bus = pci_root_bus_new(dev, NULL, s->pci_address_space, s->io_memory, 0, TYPE_PCI_BUS);
     phb->bus = pci_bus;
     qemu_printf("Intel 845PE MCH: PCI bus has been formed\n");
 
-    d = pci_create_simple(pci_bus, 0, s->pci_type);
+    d = pci_create_simple(pci_bus, PCI_DEVFN(0, 0), s->pci_type);
     f = INTEL_845PE_PCI_DEVICE(d);
 
     /* Setup the addressing of the I/O APIC */
     range_set_bounds(&s->pci_hole, s->below_4g_mem_size, IO_APIC_DEFAULT_ADDRESS - 1);
     qemu_printf("Intel 845PE MCH: I/O APIC Memory\n");
 
-    /* setup pci memory mapping */
+    /* Setup PCI memory mapping */
     pc_pci_as_mapping_init(s->system_memory, s->pci_address_space);
-    qemu_printf("Intel 845PE MCH: PCI Memory\n");
+    qemu_printf("Intel 845PE MCH: PCI Memory Mapping initialization complete!\n");
 
     /* SMRAM Creation */
     memory_region_init_alias(&f->smram_region, OBJECT(d), "smram-region", s->pci_address_space, 0xa0000, 0x20000);
@@ -483,16 +475,16 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     memory_region_init(&f->smram, OBJECT(d), "smram", 4 * GiB);
     memory_region_set_enabled(&f->smram, true);
 
-
     /* Low SMRAM A0000-BFFFF section */
     memory_region_init_alias(&f->low_smram, OBJECT(d), "smram-low", s->ram_memory, 0xa0000, 0x20000);
     memory_region_set_enabled(&f->low_smram, true);
     memory_region_add_subregion(&f->smram, 0xa0000, &f->low_smram);
+
     /* High SMRAM FEDA0000-FEDBFFFF section */
     memory_region_init_alias(&f->high_smram, OBJECT(d), "smram-high", &f->low_smram, 0xfeda0000, 0x20000);
     memory_region_set_enabled(&f->high_smram, true);
 
-    object_property_add_const_link(qdev_get_machine(), "smram", OBJECT(&f->smram));
+//    object_property_add_const_link(qdev_get_machine(), "smram", OBJECT(&f->smram));
     qemu_printf("Intel 845PE MCH: SMRAM Regions are set\n");
 
     /* Start the PAM. This is just Shadow RAM. Qemu has it's own PAM implementation. We just follow behind as Intel 845PE is no different. */
@@ -505,8 +497,8 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     }
 
     /* We'll need it to calculate DRAM banking later on */
-    ram_addr_t ram_size = s->below_4g_mem_size + s->above_4g_mem_size;
-    ram_size = ram_size / 8 / 1024 / 1024;
+//    ram_addr_t ram_size = s->below_4g_mem_size + s->above_4g_mem_size;
+//    ram_size = ram_size / 8 / 1024 / 1024;
 //    if (ram_size > 255) {
 //        ram_size = 255;
 //    }
@@ -528,6 +520,7 @@ static void intel_845pe_class_init(ObjectClass *klass, void *data)
     k->revision = 0x02; /* Intel 845PE B0 Stepping */
     k->class_id = PCI_CLASS_BRIDGE_HOST;
     dc->desc = "Intel 845PE";
+    dc->reset = intel_845pe_reset;
     dc->vmsd = &vmstate_intel_845pe;
     dc->user_creatable = false;
     dc->hotpluggable   = false;
@@ -536,7 +529,7 @@ static void intel_845pe_class_init(ObjectClass *klass, void *data)
 static const TypeInfo intel_845pe_info = {
     .name          = TYPE_INTEL_845PE_PCI_DEVICE,
     .parent        = TYPE_PCI_DEVICE,
-    .instance_size = sizeof(PCI845PEState),
+    .instance_size = sizeof(Intel_845PE_PCI_State),
     .class_init    = intel_845pe_class_init,
     .interfaces = (InterfaceInfo[]) {
         { INTERFACE_CONVENTIONAL_PCI_DEVICE },
@@ -550,14 +543,14 @@ static const char *intel_845pe_pcihost_root_bus_path(PCIHostState *host_bridge, 
 }
 
 static Property intel_845pe_props[] = {
-    DEFINE_PROP_SIZE(PCI_HOST_PROP_PCI_HOLE64_SIZE, I845PEState,
+    DEFINE_PROP_SIZE(PCI_HOST_PROP_PCI_HOLE64_SIZE, Intel_845PE_State,
                      pci_hole64_size, 1ULL << 31),
-    DEFINE_PROP_SIZE(PCI_HOST_BELOW_4G_MEM_SIZE, I845PEState,
+    DEFINE_PROP_SIZE(PCI_HOST_BELOW_4G_MEM_SIZE, Intel_845PE_State,
                      below_4g_mem_size, 0),
-    DEFINE_PROP_SIZE(PCI_HOST_ABOVE_4G_MEM_SIZE, I845PEState,
+    DEFINE_PROP_SIZE(PCI_HOST_ABOVE_4G_MEM_SIZE, Intel_845PE_State,
                      above_4g_mem_size, 0),
-    DEFINE_PROP_BOOL("x-pci-hole64-fix", I845PEState, pci_hole64_fix, true),
-    DEFINE_PROP_STRING( I845PE_HOST_PROP_PCI_TYPE, I845PEState, pci_type),
+    DEFINE_PROP_BOOL("x-pci-hole64-fix", Intel_845PE_State, pci_hole64_fix, true),
+    DEFINE_PROP_STRING( INTEL_845PE_HOST_PROP_PCI_TYPE, Intel_845PE_State, pci_type),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -593,7 +586,7 @@ static void intel_845pe_pcihost_class_init(ObjectClass *klass, void *data)
 static const TypeInfo intel_845pe_pcihost_info = {
     .name          = TYPE_INTEL_845PE_HOST_BRIDGE,
     .parent        = TYPE_PCI_HOST_BRIDGE,
-    .instance_size = sizeof(I845PEState),
+    .instance_size = sizeof(Intel_845PE_State),
     .instance_init = intel_845pe_pcihost_initfn,
     .class_init    = intel_845pe_pcihost_class_init,
 };

@@ -24,6 +24,7 @@
 
 #include "qemu/osdep.h"
 #include "qemu/units.h"
+#include "qemu/qemu-print.h"
 #include "hw/i386/pc.h"
 #include "hw/char/serial.h"
 #include "hw/char/parallel.h"
@@ -336,6 +337,8 @@ GSIState *pc_gsi_create(qemu_irq **irqs, bool pci_enabled)
 static void ioport80_write(void *opaque, hwaddr addr, uint64_t data,
                            unsigned size)
 {
+    int val = data & 0xff;
+    qemu_printf("POST: 0x%02x\n", val);
 }
 
 static uint64_t ioport80_read(void *opaque, hwaddr addr, unsigned size)

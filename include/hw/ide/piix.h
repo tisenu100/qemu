@@ -3,5 +3,6 @@
 
 #define TYPE_PIIX3_IDE "piix3-ide"
 #define TYPE_PIIX4_IDE "piix4-ide"
+#define TYPE_INTEL_ICH4_IDE "intel-ich4-ide"
 
 #endif /* HW_IDE_PIIX_H */

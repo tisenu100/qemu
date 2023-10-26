@@ -2450,6 +2450,18 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .model_id = "",
     },
     {
+        .name = "netburst",
+        .level = 0x05,
+        .vendor = CPUID_VENDOR_INTEL,
+        .family = 0x0f,
+        .model = 0x03,
+        .stepping = 0x04,
+        .features[FEAT_1_ECX] = 0x00000009, /* 0x0000441d */
+        .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
+        .xlevel = 0,
+        .model_id = "Intel(R) Pentium(R) 4 CPU 3.00GHz",
+    },
+    {
         .name = "athlon",
         .level = 2,
         .vendor = CPUID_VENDOR_AMD,

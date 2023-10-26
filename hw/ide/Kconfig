@@ -20,6 +20,11 @@ config IDE_PIIX
     select IDE_PCI
     select IDE_QDEV
 
+config IDE_INTEL_ICH4
+    bool
+    select IDE_PCI
+    select IDE_QDEV
+
 config IDE_CMD646
     bool
     select IDE_PCI

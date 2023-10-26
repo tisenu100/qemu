@@ -82,15 +82,13 @@ config INTEL_ICH4
     bool
     imply VMPORT
     imply VMMOUSE
-    select ACPI_PIIX4
+    select ACPI_INTEL_ICH4
     select PC_PCI
     select PC_ACPI
     select PCI_INTEL_845PE
     select INTEL_ICH4
-    select IDE_PIIX
-    select DIMM
-    select SMBIOS
-    select FW_CFG_DMA
+    select IDE_INTEL_ICH4
+    select DIMM  
 
 
 config ISAPC
