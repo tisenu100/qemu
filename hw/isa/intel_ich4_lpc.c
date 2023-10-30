@@ -60,6 +60,13 @@ static void intel_ich4_acpi(int msb, int lsb, int en, Intel_ICH4_ACPI_State *acp
     memory_region_transaction_commit();
 }
 
+/*
+static void intel_ich4_acpi_irq(int val, Intel_ICH4_ACPI_State *acpi)
+{
+
+}
+*/
+
 static void intel_ich4_gpio(int msb, int lsb, int en)
 {
     int io_base = (msb << 8) | lsb;
@@ -97,7 +104,13 @@ int intel_ich4_irq_table(int irq)
 static PCIINTxRoute route_intx_pin_to_irq(void *opaque, int pin)
 {
     ICH4State *ich4 = opaque;
-    int irq = intel_ich4_irq_table(ich4->dev.config[((pin > 3) ? 0x64 : 0x60) + pin] & 0x0f);
+    int irq = 0;
+    
+    if(!(ich4->dev.config[((pin > 3) ? 0x64 : 0x60) + pin] & 0x80))
+        irq = intel_ich4_irq_table(ich4->dev.config[((pin > 3) ? 0x64 : 0x60) + pin] & 0x0f);
+    else
+        irq = 16 + pin;
+
     PCIINTxRoute route;
 
     route.mode = !!irq ? PCI_INTX_ENABLED : PCI_INTX_DISABLED;
@@ -116,7 +129,7 @@ static void intel_ich4_pirq(ICH4State *ich4)
     for(int i = 0; i < 8; i++){
         int level = pci_bus_get_irq_level(bus, i); /* PIRQ Level */
         int pic_irq = intel_ich4_irq_table(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x0f); /* Pick up the IRQ from the table */
-        int enabled = !!(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x80) && (pic_irq != 0);
+        int enabled = !(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x80) && (pic_irq != 0);
         uint64_t mask; /* Qemu magic */
 
         if(!!enabled) {
@@ -211,11 +224,84 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                 new_val = new_val & 0xfc;
             break;
 
-            /* Page 302 to continue */
+            case 0xd0:
+                new_val = new_val & 0xc7;
+            break;
+
+            case 0xd1:
+                new_val = new_val & 0x39;
+            break;
+
+            case 0xd2:
+                new_val = new_val & 0x20;
+            break;
+
+            case 0xd3:
+                new_val = new_val & 0x03;
+            break;
+
+            case 0xd4:
+                new_val &= new_val & 0x02;
+            break;
+
+            case 0xd5:
+                new_val &= new_val & 0x3f;
+            break;
+
+            case 0xd8:
+                new_val &= new_val & 0x1c;
+            break;
+
+            case 0xe0:
+                new_val &= new_val & 0x77;
+            break;
+
+            case 0xe1:
+                new_val &= new_val & 0x13;
+            break;
+
+            case 0xe2:
+                new_val &= new_val & 0x3b;
+            break;
+
+            case 0xe4:
+                new_val &= new_val & 0x81;
+            break;
+
+            case 0xe7:
+                new_val &= new_val & 0x3f;
+            break;
+
+            case 0xec:
+                new_val &= new_val & 0xf1;
+            break;
+
+            case 0xf0:
+                new_val &= new_val & 0x0f;
+            break;
+
+            case 0xf2:
+                new_val &= new_val & 0x6b;
+            break;
+
+            case 0xf3:
+                new_val &= new_val & 0xc7;
+            break;
+
             case 0x41:
             case 0x59:
             case 0x64:
             case 0x90:
+            case 0xe3:
+            case 0xe5:
+            case 0xe6:
+            case 0xe8:
+            case 0xe9:
+            case 0xea:
+            case 0xeb:
+            case 0xed:
+            case 0xee:
+            case 0xef:
             break;
 
             default:
@@ -340,7 +426,6 @@ static const VMStateDescription vmstate_ich4 = {
     },
     .subsections = (const VMStateDescription*[]) {&vmstate_ich4_rcr, NULL}
 };
-
 
 static void rcr_write(void *opaque, hwaddr addr, uint64_t val, unsigned len)
 {

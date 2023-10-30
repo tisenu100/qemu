@@ -1,5 +1,5 @@
 /*
- * Intel ICH4 based ACPI Implementation based on Qemu's PIIX4 PM structure
+ * Intel ICH4 based ACPI Implementation based on Qemus PIIX4 PM structure
  *
  * Copyright (c) 2006 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -57,6 +57,14 @@ struct Intel_ICH4_ACPI_State {
     /* SMI/SCI IRQ Handling */
     qemu_irq irq;
     qemu_irq smi_irq;
+
+    /* SMI Controller */
+    MemoryRegion smi_io;
+    uint8_t smi_w[4];
+    uint8_t smi_s[4];
+    uint32_t smi_io_base;
+
+    /* SMI/SCI Qemu Stuff */
     bool smm_enabled;
     bool smm_compat;
     Notifier machine_ready;

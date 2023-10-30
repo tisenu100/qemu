@@ -36,14 +36,9 @@
 #include "hw/rtc/mc146818rtc.h"
 #include "hw/southbridge/piix.h"
 #include "hw/display/ramfb.h"
-#include "hw/firmware/smbios.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_ids.h"
 #include "hw/usb.h"
-#include "net/net.h"
-#include "hw/ide/isa.h"
-#include "hw/ide/pci.h"
-#include "hw/ide/piix.h"
 #include "hw/irq.h"
 #include "sysemu/kvm.h"
 #include "hw/i386/kvm/clock.h"
@@ -51,7 +46,6 @@
 #include "hw/i2c/smbus_eeprom.h"
 #include "exec/memory.h"
 #include "hw/acpi/acpi.h"
-#include "hw/usb/hcd-uhci.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "migration/global_state.h"
@@ -64,6 +58,10 @@
 
 #include "hw/pci-host/intel_845pe.h"
 #include "hw/southbridge/ich4_lpc.h"
+#include "hw/ide/isa.h"
+#include "hw/ide/pci.h"
+#include "hw/ide/piix.h"
+#include "hw/usb/hcd-uhci.h"
 #include "hw/acpi/intel_ich4_acpi.h"
 #include "qemu/qemu-print.h"
 
@@ -264,10 +262,15 @@ static void pc_init1(MachineState *machine, const char *host_type, const char *p
 
 
     /* Create UHCI Compatible Controllers */
-//    PCIDevice *uhci[3];
-//    for(int i = 0; i < 3; i++)
-//        pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x29, (i * 2)), TYPE_PIIX3_USB_UHCI);
-
+    /* These are Qemu Standard Devices. Intel ICH4 EHCI is even implemented by the Qemu team themselves. */
+    pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1d, 0), TYPE_INTEL_ICH4_UHCI(0));
+    qemu_printf("PC: Created 1 USB UHCI Hub devices\n");
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 2), TYPE_INTEL_ICH4_UHCI(2));
+    qemu_printf("PC: Created 2 USB UHCI Hub devices\n");
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 4), TYPE_INTEL_ICH4_UHCI(4));
+    qemu_printf("PC: Created 3 USB UHCI Hub devices\n");
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 7), "intel-ich4-ehci");
+    qemu_printf("PC: Created 1 USB EHCI Hub devices\n");
 
     /* ACPI */
     PCIDevice *intel_ich4_acpi;
@@ -297,17 +300,16 @@ static void pc_init1(MachineState *machine, const char *host_type, const char *p
     pcms->smbus = I2C_BUS(qdev_get_child_bus(DEVICE(intel_ich4_acpi), "i2c"));
 
     /* Intel 845PE utilizes DDR Memory */
-    uint8_t *spd = spd_data_generate(DDR, machine->ram_size);
+    uint8_t *spd[2];
+    spd[0] = spd_data_generate(DDR, ((int)machine->ram_size / 2));
+    spd[1] = spd_data_generate(DDR, ((int)machine->ram_size / 2));
 
     /* Initialize the SMBus SPD data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
-    smbus_eeprom_init_one(pcms->smbus, 0x50, spd);       
-
-//    object_property_add_link(OBJECT(machine), PC_MACHINE_ACPI_DEVICE_PROP, TYPE_HOTPLUG_HANDLER, (Object **)&x86ms->acpi_dev, object_property_allow_set_link, OBJ_PROP_LINK_STRONG);
-//    object_property_set_link(OBJECT(machine), PC_MACHINE_ACPI_DEVICE_PROP, OBJECT(intel_ich4_acpi), &error_abort);
+    smbus_eeprom_init_one(pcms->smbus, 0x50, spd[0]);       
+    smbus_eeprom_init_one(pcms->smbus, 0x51, spd[1]);       
 
     /* Link ACPIState with the LPC so we can remap it's I/O base */
     intel_ich4_link_acpi(lpc, acpi);
-
 }
 
 #define DEFINE_ICH4_MACHINE(suffix, name, compatfn, optionfn) \
@@ -328,11 +330,10 @@ static void pc_ich4_machine_options(MachineClass *m)
     pcmc->pci_root_uid = 0;
     pcmc->default_cpu_version = 1;
     pcmc->pci_enabled = 1;
-
     m->family = "pc-ich4";
-    m->desc = "ICH4 Based Computer";
+    m->desc = "Intel ICH4 Based Machine";
     m->default_display = "std";
-    m->no_parallel = !module_object_class_by_name(TYPE_ISA_PARALLEL);
+    m->no_parallel = false;
     machine_class_allow_dynamic_sysbus_dev(m, TYPE_RAMFB_DEVICE);
     machine_class_allow_dynamic_sysbus_dev(m, TYPE_VMBUS_BRIDGE);
 }

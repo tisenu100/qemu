@@ -151,6 +151,23 @@ static void intel_ich4_ide_remap(int addr, int val, PCIDevice *dev)
     PCIIDEState *d = PCI_IDE(dev);
 }
 */
+
+
+static void intel_ich4_bm_remap(int msb, int lsb, int en, PCIDevice *dev)
+{
+    PCIIDEState *d = PCI_IDE(dev);
+
+    int bm_addr = (msb << 8) | (lsb & 0xfe);
+
+    memory_region_transaction_begin();
+    memory_region_set_enabled(&d->bmdma_bar, !!en);
+    memory_region_set_address(&d->bmdma_bar, bm_addr);
+    memory_region_transaction_commit();
+
+    qemu_printf("Intel ICH4 IDE: Bus Master Base updated to 0x%04x\n", bm_addr);
+}
+
+
 /*
 static void intel_ich4_ide_control(PCIDevice *dev)
 {
@@ -248,7 +265,14 @@ static void intel_ich4_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
             dev->config[address + i] = new_val;
             qemu_printf("Intel ICH4 IDE: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
+    }
 
+    switch(address) {
+        case 0x04:
+        case 0x20:
+        case 0x21:
+            intel_ich4_bm_remap(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 4, dev);
+        break;
     }
 }
 
@@ -264,8 +288,8 @@ static void intel_ich4_ide_realize(PCIDevice *dev, Error **errp)
     qemu_printf("Intel ICH4 IDE: Bus Mastering has been set\n");
 
     /* Master & Slave drives */
-    intel_ich4_ide_start_drive(d, 0x3f0, 0x1f0, 14, 0, errp); /* Primary */
-    intel_ich4_ide_start_drive(d, 0x1f0, 0x170, 15, 1, errp); /* Slave */
+    intel_ich4_ide_start_drive(d, 0x3f0, 0x3f6, 14, 0, errp); /* Primary */
+    intel_ich4_ide_start_drive(d, 0x170, 0x176, 15, 1, errp); /* Slave */
 
     qemu_printf("Intel ICH4 IDE: IDE Drives have been set\n");
 }

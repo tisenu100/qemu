@@ -1,9 +1,13 @@
 /*
- * Intel ICH4 based ACPI/SMBus Implementation based on Qemu's PIIX4 PM structure
+ * Intel ICH4 based ACPI/SMBus Implementation based on Qemus PIIX4 PM structure
  *
  * Copyright (c) 2006 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
  *
+ * ACPI core.c parts
+ * Copyright (c) 2006 Fabrice Bellard
+ * Copyright (c) 2023 Tiseno100
+ * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License version 2.1 as published by the Free Software Foundation.
@@ -46,58 +50,54 @@
 #include "migration/vmstate.h"
 #include "hw/core/cpu.h"
 #include "qom/object.h"
+#include "qapi/error.h"
+#include "qapi/opts-visitor.h"
+#include "qapi/qapi-events-run-state.h"
+#include "qapi/qapi-visit-acpi.h"
 
 #include "hw/acpi/intel_ich4_acpi.h"
 
 #define GPE_BASE 0xafe0
-#define GPE_LEN 4
+#define ACPI_ENABLE 0xf1
+#define ACPI_DISABLE 0xf0
+
+/* A Global State Device. Meant to make SMI Triggers happy */
+Intel_ICH4_ACPI_State *g;
 
 struct pci_status {
     uint32_t up; /* deprecated, maintained for migration compatibility */
     uint32_t down;
 };
 
-#define ACPI_ENABLE 0xf1
-#define ACPI_DISABLE 0xf0
-
+/* PM Timer. When it runs out provoke an SCI or SMI Instead */
 static void pm_tmr_timer(ACPIREGS *ar)
 {
     Intel_ICH4_ACPI_State *s = container_of(ar, Intel_ICH4_ACPI_State, ar);
     acpi_update_sci(&s->ar, s->irq);
 }
 
-
-/* Global SMI Trigger. Qemu likes it being an IRQ */
-static void intel_ich4_provoke_smi(Intel_ICH4_ACPI_State *s, uint16_t status_set)
+/* Global SMI Trigger */
+static void intel_ich4_provoke_smi(Intel_ICH4_ACPI_State *s)
 {
-    if (s->smi_irq) {
-        qemu_printf("Intel ICH4 ACPI: We have provoked an SMI 0x%04x!\n", status_set);
+    if (s->smi_irq) { /* The SMI Interrupt is set the the pc_init code */
+        qemu_printf("Intel ICH4 ACPI: An SMI interrupt was provoked!\n");
         qemu_irq_raise(s->smi_irq);
     }
 }
 
-/* APMC SMI control */
+/* APM Control */
 static void apm_ctrl_changed(uint32_t val, void *arg)
 {
     Intel_ICH4_ACPI_State *s = arg;
 
-    acpi_pm1_cnt_update(&s->ar, val == ACPI_ENABLE, val == ACPI_DISABLE);
-    if (val == ACPI_ENABLE || val == ACPI_DISABLE) {
-        return;
+    if(s->smi_w[1] & 0x20) { /* APMC SMI. If B3h is written provoke it */
+        qemu_printf("Intel ICH4 ACPI: APMC has requested an SMI\n");
+        s->smi_s[1] |= 0x20;
+        intel_ich4_provoke_smi(s);
     }
-
-    /* When SMI handlers are ready */
-    intel_ich4_provoke_smi(s, 0);
 }
 
-static void piix4_pm_init(Object *obj)
-{
-    Intel_ICH4_ACPI_State *s = INTEL_ICH4_ACPI(obj);
-
-    qdev_init_gpio_out(DEVICE(obj), &s->irq, 1);
-    qdev_init_gpio_out_named(DEVICE(obj), &s->smi_irq, "smi-irq", 1);
-}
-
+/* GPE */
 static uint64_t gpe_readb(void *opaque, hwaddr addr, unsigned width)
 {
     Intel_ICH4_ACPI_State *s = opaque;
@@ -106,13 +106,19 @@ static uint64_t gpe_readb(void *opaque, hwaddr addr, unsigned width)
     return val;
 }
 
-static void gpe_writeb(void *opaque, hwaddr addr, uint64_t val,
-                       unsigned width)
+static void gpe_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned width)
 {
     Intel_ICH4_ACPI_State *s = opaque;
 
     acpi_gpe_ioport_writeb(&s->ar, addr, val);
     acpi_update_sci(&s->ar, s->irq);
+}
+
+static void intel_ich4_send_gpe(AcpiDeviceIf *adev, AcpiEventStatusBits ev)
+{
+    Intel_ICH4_ACPI_State *s = INTEL_ICH4_ACPI(adev);
+
+    acpi_send_gpe_event(&s->ar, s->irq, ev);
 }
 
 static const MemoryRegionOps intel_ich4_acpi_gpe_ops = {
@@ -125,13 +131,161 @@ static const MemoryRegionOps intel_ich4_acpi_gpe_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
-static void intel_ich4_send_gpe(AcpiDeviceIf *adev, AcpiEventStatusBits ev)
-{
-    Intel_ICH4_ACPI_State *s = INTEL_ICH4_ACPI(adev);
+#define VMSTATE_GPE_ARRAY(_field, _state)                            \
+ {                                                                   \
+     .name       = (stringify(_field)),                              \
+     .version_id = 0,                                                \
+     .info       = &vmstate_info_uint16,                             \
+     .size       = sizeof(uint16_t),                                 \
+     .flags      = VMS_SINGLE | VMS_POINTER,                         \
+     .offset     = vmstate_offset_pointer(_state, _field, uint8_t),  \
+ }
 
-    acpi_send_gpe_event(&s->ar, s->irq, ev);
+static const VMStateDescription vmstate_gpe = {
+    .name = "gpe",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_GPE_ARRAY(sts, ACPIGPE),
+        VMSTATE_GPE_ARRAY(en, ACPIGPE),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+/* PM1 Control. Qemu has it's own but we do it ourselves instead */
+static uint64_t pm1_cnt_read(void *opaque, hwaddr addr, unsigned width)
+{
+    ACPIREGS *ar = opaque;
+    return ar->pm1.cnt.cnt >> addr * 8;
 }
 
+static void pm1_cnt_write(void *opaque, hwaddr addr, uint64_t val, unsigned width)
+{
+    ACPIREGS *ar = opaque;
+
+    ar->pm1.cnt.cnt = (val << ((addr == 1) * 8)) | ar->pm1.cnt.cnt; /* Avoid zeroing out the LSB bits when we write on the MSB ones and vice versa */
+
+    if(ar->pm1.cnt.cnt & 0x2000) { /* Bit 13: Sleep Enable */
+        if(g->smi_w[0] & 0x10) { /* SLEEP_ENABLE SMI */
+            g->smi_s[0] |= 0x10;
+            qemu_printf("Intel ICH4 ACPI: Ignoring Sleep Status as an SMI request was gived\n");
+            intel_ich4_provoke_smi(g);
+        }
+        else {
+            /*
+                Intel ICH4 Sleep Tables
+
+                0: Working
+                1: STPCLK#
+                2: --
+                3: --
+                4: --
+                5: Suspend to RAM
+                6: Suspend to Disk
+                7: Soft Off
+            */ 
+            switch((val >> 10) & 7) {
+                case 5:
+                    qemu_printf("Intel ICH4 ACPI: Suspending to RAM\n");
+                    qemu_system_suspend_request();
+                break;
+
+                case 6:
+                    qemu_printf("Intel ICH4 ACPI: Suspending to Disk\n");
+                    qapi_event_send_suspend_disk();
+                    qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
+                break;
+
+                case 7:
+                    qemu_printf("Intel ICH4 ACPI: We are powering down\n");
+                    qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
+                break;
+            }
+        }
+    }
+
+    if(!!(ar->pm1.cnt.cnt & 0x0004) && !!(g->smi_w[0] & 0x04)) {
+        g->smi_s[0] |= 0x04;
+        qemu_printf("Intel ICH4 ACPI: Global Release bit was set with BIOS_RLS. Requesting SMI interrupt\n");
+        intel_ich4_provoke_smi(g);
+    }
+
+    qemu_printf("Intel ICH4 ACPI: PM Control update 0x%04x!\n", ar->pm1.cnt.cnt);
+}
+
+static const MemoryRegionOps pm1_cnt_ops = {
+    .read = pm1_cnt_read,
+    .write = pm1_cnt_write,
+    .impl.min_access_size = 2,
+    .valid.min_access_size = 1,
+    .valid.max_access_size = 2,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
+
+/* Intel ICH4 Compatible SMI Handlers */
+static void smi_handler_reset(Intel_ICH4_ACPI_State *s)
+{
+    memset(s->smi_w, 0, sizeof(s->smi_w));
+    memset(s->smi_s, 0, sizeof(s->smi_s));
+
+    qemu_printf("Intel ICH4 ACPI: SMI Handler has been reset\n");
+}
+
+static void smi_handler_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned width)
+{
+    Intel_ICH4_ACPI_State *s = opaque;
+
+    /*
+        Page 363 of the Intel ICH4 Datasheet.
+        Refer to the page above for more details:
+
+        There are various methods to provoke a System Mangament Interrupt(SMI) to the Intel ICH4.
+        These are the methods though we probably bother about.
+
+        PMBASE + 30h
+
+        18: INTEL_USB2_EN EHCI SMI(Probs not needed)
+        17: LEGACY_USB2_EN Legacy EHCI SMI(Probs not needed)
+         7: BIOS Release Allows SCI Interrupts
+         5: APMC_EN An SMI will be provoked on every write to the APM Port (B3h)
+         4: SLP_SMI_EN Trigger an SMI instead of changing Sleep Modes
+         3: LEGACY_USB_EN Legacy USB Functionality triggers SMI
+         2: BIOS_EN Global ACPI Register triggers SMI
+         0: GBL_SMI_EN The Global Switch
+    */
+
+    int address = addr;
+
+    if(address < 4)
+        s->smi_w[address] = val;
+    else
+        s->smi_s[address - 4] &= val;
+
+    qemu_printf("Intel ICH4 ACPI: SMI Handler has been updated 0x%02x%02x%02x%02x!\n", s->smi_w[3], s->smi_w[2], s->smi_w[1], s->smi_w[0]);
+}
+
+static uint64_t smi_handler_readb(void *opaque, hwaddr addr, unsigned width)
+{
+    Intel_ICH4_ACPI_State *s = opaque;
+    int address = addr;
+
+    if(address < 4)
+        return s->smi_w[address] & 0xff;
+    else
+        return s->smi_s[address - 4] & 0xff;
+}
+
+static const MemoryRegionOps intel_ich4_acpi_smi_handler_ops = {
+    .read = smi_handler_readb,
+    .write = smi_handler_writeb,
+    .valid.min_access_size = 1,
+    .valid.max_access_size = 4,
+    .impl.min_access_size = 1,
+    .impl.max_access_size = 1,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
+
+/* Intel ICH4 SMBus PCI Device */
 static void intel_ich4_smbus(int msb, int lsb, int en, Intel_ICH4_ACPI_State *s)
 {
     s->smb_io_base = ((msb << 8) | lsb) & 0xffc0;
@@ -228,61 +382,32 @@ static void intel_ich4_smbus_write_config(PCIDevice *dev, uint32_t address, uint
     }
 }
 
-static int vmstate_acpi_post_load(void *opaque, int version_id)
+static int intel_ich4_acpi_vmstate_post_load(void *opaque, int version_id)
 {
-//    Intel_ICH4_ACPI_State *s = opaque;
+    //Intel_ICH4_ACPI_State *s = opaque;
 
-//    pm_io_space_update(s);
-//    intel_ich4_smbus(s);
+    /* PM IO too but for LPC */
+    //intel_ich4_smbus(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 1, ich4_acpi);
     return 0;
 }
-
-#define VMSTATE_GPE_ARRAY(_field, _state)                            \
- {                                                                   \
-     .name       = (stringify(_field)),                              \
-     .version_id = 0,                                                \
-     .info       = &vmstate_info_uint16,                             \
-     .size       = sizeof(uint16_t),                                 \
-     .flags      = VMS_SINGLE | VMS_POINTER,                         \
-     .offset     = vmstate_offset_pointer(_state, _field, uint8_t),  \
- }
-
-static const VMStateDescription vmstate_gpe = {
-    .name = "gpe",
-    .version_id = 1,
-    .minimum_version_id = 1,
-    .fields = (VMStateField[]) {
-        VMSTATE_GPE_ARRAY(sts, ACPIGPE),
-        VMSTATE_GPE_ARRAY(en, ACPIGPE),
-        VMSTATE_END_OF_LIST()
-    }
-};
 
 static bool intel_ich4_acpi_vmstate_need_smbus(void *opaque, int version_id)
 {
     return pm_smbus_vmstate_needed();
 }
 
-
-/* qemu-kvm 1.2 uses version 3 but advertised as 2
- * To support incoming qemu-kvm 1.2 migration, change version_id
- * and minimum_version_id to 2 below (which breaks migration from
- * qemu 1.2).
- *
- */
 static const VMStateDescription vmstate_acpi = {
     .name = "intel-ich4-acpi",
     .version_id = 3,
     .minimum_version_id = 3,
-    .post_load = vmstate_acpi_post_load,
+    .post_load = intel_ich4_acpi_vmstate_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_PCI_DEVICE(parent_obj, Intel_ICH4_ACPI_State),
         VMSTATE_UINT16(ar.pm1.evt.sts, Intel_ICH4_ACPI_State),
         VMSTATE_UINT16(ar.pm1.evt.en, Intel_ICH4_ACPI_State),
         VMSTATE_UINT16(ar.pm1.cnt.cnt, Intel_ICH4_ACPI_State),
         VMSTATE_STRUCT(apm, Intel_ICH4_ACPI_State, 0, vmstate_apm, APMState),
-        VMSTATE_STRUCT_TEST(smb, Intel_ICH4_ACPI_State, intel_ich4_acpi_vmstate_need_smbus, 3,
-                            pmsmb_vmstate, PMSMBus),
+        VMSTATE_STRUCT_TEST(smb, Intel_ICH4_ACPI_State, intel_ich4_acpi_vmstate_need_smbus, 3, pmsmb_vmstate, PMSMBus),
         VMSTATE_TIMER_PTR(ar.tmr.timer, Intel_ICH4_ACPI_State),
         VMSTATE_INT64(ar.tmr.overflow_time, Intel_ICH4_ACPI_State),
         VMSTATE_STRUCT(ar.gpe, Intel_ICH4_ACPI_State, 2, vmstate_gpe, ACPIGPE),
@@ -294,11 +419,17 @@ static void intel_ich4_acpi_reset(DeviceState *dev)
 {
     Intel_ICH4_ACPI_State *s = INTEL_ICH4_ACPI(dev);
 
+//    intel_ich4_smbus(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 1, s);
+
+    acpi_pm1_cnt_reset(&s->ar); /* We use stock reset although we use a modified PM1ACNT */
     acpi_pm1_evt_reset(&s->ar);
-    acpi_pm1_cnt_reset(&s->ar);
+
     acpi_pm_tmr_reset(&s->ar);
     acpi_gpe_reset(&s->ar);
     acpi_update_sci(&s->ar, s->irq);
+
+    smi_handler_reset(s);
+
 }
 
 static void intel_ich4_acpi_powerdown_req(Notifier *n, void *opaque)
@@ -309,29 +440,12 @@ static void intel_ich4_acpi_powerdown_req(Notifier *n, void *opaque)
     acpi_pm1_evt_power_down(&s->ar);
 }
 
-static void intel_ich4_acpi_machine_ready(Notifier *n, void *opaque)
-{
-//    Intel_ICH4_ACPI_State *s = container_of(n, Intel_ICH4_ACPI_State, machine_ready);
-//    PCIDevice *d = PCI_DEVICE(s);
-//    MemoryRegion *io_as = pci_address_space_io(d);
-//    uint8_t *pci_conf;
-
-/*
-    pci_conf = d->config;
-    pci_conf[0x5f] = 0x10 |
-        (memory_region_present(io_as, 0x378) ? 0x80 : 0);
-    pci_conf[0x63] = 0x60;
-    pci_conf[0x67] = (memory_region_present(io_as, 0x3f8) ? 0x08 : 0) |
-        (memory_region_present(io_as, 0x2f8) ? 0x90 : 0);
-*/
-}
-
 static void intel_ich4_acpi_add_properties(Intel_ICH4_ACPI_State *s)
 {
     static const uint8_t acpi_enable_cmd = ACPI_ENABLE;
     static const uint8_t acpi_disable_cmd = ACPI_DISABLE;
     static const uint32_t gpe0_blk = GPE_BASE;
-    static const uint32_t gpe0_blk_len = GPE_LEN;
+    static const uint32_t gpe0_blk_len = 4;
     static const uint16_t sci_int = 9;
 
     object_property_add_uint8_ptr(OBJECT(s), ACPI_PM_PROP_ACPI_ENABLE_CMD, &acpi_enable_cmd, OBJ_PROP_FLAG_READ);
@@ -342,13 +456,23 @@ static void intel_ich4_acpi_add_properties(Intel_ICH4_ACPI_State *s)
     object_property_add_uint32_ptr(OBJECT(s), ACPI_PM_PROP_PM_IO_BASE, &s->io_base, OBJ_PROP_FLAG_READ);
 }
 
+static void intel_ich4_acpi_init(Object *obj)
+{
+    Intel_ICH4_ACPI_State *s = INTEL_ICH4_ACPI(obj);
+
+    /* SCI Interrupt */
+    qdev_init_gpio_out(DEVICE(obj), &s->irq, 1);
+
+    /* SMI Interrupt */
+    qdev_init_gpio_out_named(DEVICE(obj), &s->smi_irq, "smi-irq", 1);
+}
+
 static void intel_ich4_acpi_realize(PCIDevice *dev, Error **errp)
 {
     Intel_ICH4_ACPI_State *s = INTEL_ICH4_ACPI(dev);
 
-    /* APM */
-    qemu_printf("Intel ICH4 ACPI: Starting APM\n");
-    apm_init(dev, &s->apm, apm_ctrl_changed, s);
+    qemu_printf("Intel ICH4 SMBus: I got realized\n");
+    qemu_printf("Intel ICH4 ACPI: I got realized\n");
 
     /* SMBus */
     pm_smbus_init(DEVICE(dev), &s->smb, true);
@@ -357,28 +481,44 @@ static void intel_ich4_acpi_realize(PCIDevice *dev, Error **errp)
     qemu_printf("Intel ICH4 SMBus: SMBus is up!\n");
 
     /* ACPI */
-    memory_region_init(&s->io, OBJECT(s), "intel-ich4-acpi", 64);
+    memory_region_init(&s->io, OBJECT(s), "intel-ich4-acpi", 0x7f);
     memory_region_set_enabled(&s->io, false);
     memory_region_add_subregion(pci_address_space_io(dev), s->io_base, &s->io);
-    qemu_printf("Intel ICH4 ACPI: ACPI is up!\n");
+    qemu_printf("Intel ICH4 ACPI: ACPI is starting!\n");
 
-    /* GPE */
-    memory_region_init_io(&s->io_gpe, OBJECT(s), &intel_ich4_acpi_gpe_ops, s, "acpi-gpe0", GPE_LEN);
-    memory_region_add_subregion(pci_address_space_io(dev), GPE_BASE, &s->io_gpe);
+    /* APM */
+    apm_init(dev, &s->apm, apm_ctrl_changed, s);
+    qemu_printf("Intel ICH4 ACPI: APM\n");
 
-    /* ACPI Events & Timers */
+    /* Control */
+    qemu_register_wakeup_notifier(&s->ar.wakeup);
+    qemu_register_wakeup_support();
+    memory_region_init_io(&s->ar.pm1.cnt.io, memory_region_owner(&s->io), &pm1_cnt_ops, &s->ar, "acpi_pm1_cnt", 2);
+    memory_region_add_subregion(pci_address_space_io(dev), 0x04, &s->ar.pm1.cnt.io);
+    qemu_printf("Intel ICH4 ACPI: ACPI PM Control\n");
+
+    /* Timer */
     acpi_pm_tmr_init(&s->ar, pm_tmr_timer, &s->io);
     acpi_pm1_evt_init(&s->ar, pm_tmr_timer, &s->io);
-    acpi_pm1_cnt_init(&s->ar, &s->io, s->disable_s3, s->disable_s4, s->s4_val,
-                      !s->smm_compat && !s->smm_enabled);
-    acpi_gpe_init(&s->ar, GPE_LEN);
+    qemu_printf("Intel ICH4 ACPI: ACPI Timer\n");
+
+    /* General Purpose Events */
+    memory_region_init_io(&s->io_gpe, OBJECT(s), &intel_ich4_acpi_gpe_ops, s, "acpi_gpe", 4);
+    memory_region_add_subregion(pci_address_space_io(dev), 0, &s->io_gpe);
+    acpi_gpe_init(&s->ar, 4);
+    qemu_printf("Intel ICH4 ACPI: ACPI GPE\n");
+
+    /* SMI Handler */
+    g = INTEL_ICH4_ACPI(dev);
+    memory_region_init_io(&s->smi_io, memory_region_owner(&s->io), &intel_ich4_acpi_smi_handler_ops, s, "acpi_smi", 8);
+    memory_region_add_subregion(pci_address_space_io(dev), 0x30, &s->smi_io);
+    qemu_printf("Intel ICH4 ACPI: SMI Handler\n");
+
+    qemu_printf("Intel ICH4 ACPI: ACPI has started!\n");
 
     /* Notifiers for Qemu */
     s->powerdown_notifier.notify = intel_ich4_acpi_powerdown_req;
     qemu_register_powerdown_notifier(&s->powerdown_notifier);
-
-    s->machine_ready.notify = intel_ich4_acpi_machine_ready;
-    qemu_add_machine_init_done_notifier(&s->machine_ready);
 
     intel_ich4_acpi_add_properties(s);
 }
@@ -409,7 +549,7 @@ static void piix4_pm_class_init(ObjectClass *klass, void *data)
     /* SMBus PCI Device */
     k->config_write = intel_ich4_smbus_write_config;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
-    k->device_id = PCI_DEVICE_ID_INTEL_82371AB_3;
+    k->device_id = PCI_DEVICE_ID_INTEL_ICH4_SMBUS;
     k->class_id = PCI_CLASS_SERIAL_SMBUS;
 
     /* Properties */
@@ -421,7 +561,7 @@ static void piix4_pm_class_init(ObjectClass *klass, void *data)
 static const TypeInfo piix4_pm_info = {
     .name          = TYPE_INTEL_ICH4_ACPI,
     .parent        = TYPE_PCI_DEVICE,
-    .instance_init  = piix4_pm_init,
+    .instance_init  = intel_ich4_acpi_init,
     .instance_size = sizeof(Intel_ICH4_ACPI_State),
     .class_init    = piix4_pm_class_init,
     .interfaces = (InterfaceInfo[]) {

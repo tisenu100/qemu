@@ -1303,6 +1303,27 @@ static UHCIInfo uhci_info[] = {
         .irq_pin   = 3,
         .unplug    = true,
     },{
+        .name      = TYPE_INTEL_ICH4_UHCI(0),
+        .vendor_id = PCI_VENDOR_ID_INTEL,
+        .device_id = PCI_DEVICE_ID_INTEL_ICH4_USB_U1,
+        .revision  = 0x01,
+        .irq_pin   = 1,
+        .unplug    = true,
+    },{
+        .name      = TYPE_INTEL_ICH4_UHCI(2),
+        .vendor_id = PCI_VENDOR_ID_INTEL,
+        .device_id = PCI_DEVICE_ID_INTEL_ICH4_USB_U2,
+        .revision  = 0x01,
+        .irq_pin   = 2,
+        .unplug    = true,
+    },{
+        .name      = TYPE_INTEL_ICH4_UHCI(4),
+        .vendor_id = PCI_VENDOR_ID_INTEL,
+        .device_id = PCI_DEVICE_ID_INTEL_ICH4_USB_U3,
+        .revision  = 0x01,
+        .irq_pin   = 3,
+        .unplug    = true,
+    },{
         .name      = TYPE_ICH9_USB_UHCI(1), /* 00:1d.0 */
         .vendor_id = PCI_VENDOR_ID_INTEL,
         .device_id = PCI_DEVICE_ID_INTEL_82801I_UHCI1,
