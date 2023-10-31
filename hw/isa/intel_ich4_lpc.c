@@ -38,11 +38,8 @@
 
 void intel_ich4_link_acpi(ICH4State *lpc, Intel_ICH4_ACPI_State *acpi)
 {
-    ICH4State *s = ICH4_PCI_DEVICE(lpc);
-
+    lpc->acpi = acpi;
     qemu_printf("Intel ICH4 LPC: ACPI has been linked\n");
-
-    s->acpi = INTEL_ICH4_ACPI(acpi);
 }
 
 static void intel_ich4_acpi(int msb, int lsb, int en, Intel_ICH4_ACPI_State *acpi)
