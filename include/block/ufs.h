@@ -111,14 +111,14 @@ REG32(UECT, offsetof(UfsReg, uect))
 REG32(UECDME, offsetof(UfsReg, uecdme))
 REG32(UTRIACR, offsetof(UfsReg, utriacr))
 REG32(UTRLBA, offsetof(UfsReg, utrlba))
-    FIELD(UTRLBA, UTRLBA, 9, 22)
+    FIELD(UTRLBA, UTRLBA, 10, 22)
 REG32(UTRLBAU, offsetof(UfsReg, utrlbau))
 REG32(UTRLDBR, offsetof(UfsReg, utrldbr))
 REG32(UTRLCLR, offsetof(UfsReg, utrlclr))
 REG32(UTRLRSR, offsetof(UfsReg, utrlrsr))
 REG32(UTRLCNR, offsetof(UfsReg, utrlcnr))
 REG32(UTMRLBA, offsetof(UfsReg, utmrlba))
-    FIELD(UTMRLBA, UTMRLBA, 9, 22)
+    FIELD(UTMRLBA, UTMRLBA, 10, 22)
 REG32(UTMRLBAU, offsetof(UfsReg, utmrlbau))
 REG32(UTMRLDBR, offsetof(UfsReg, utmrldbr))
 REG32(UTMRLCLR, offsetof(UfsReg, utmrlclr))
@@ -379,7 +379,7 @@ typedef struct Attributes {
 
 /* Command response result code */
 typedef enum CommandRespCode {
-    UFS_COMMAND_RESULT_SUCESS = 0x00,
+    UFS_COMMAND_RESULT_SUCCESS = 0x00,
     UFS_COMMAND_RESULT_FAIL = 0x01,
 } CommandRespCode;
 

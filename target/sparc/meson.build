@@ -1,4 +1,7 @@
+gen = decodetree.process('insns.decode')
+
 sparc_ss = ss.source_set()
+sparc_ss.add(gen)
 sparc_ss.add(files(
   'cc_helper.c',
   'cpu.c',
@@ -20,4 +23,4 @@ sparc_system_ss.add(files(
 ))
 
 target_arch += {'sparc': sparc_ss}
-target_softmmu_arch += {'sparc': sparc_system_ss}
+target_system_arch += {'sparc': sparc_system_ss}
