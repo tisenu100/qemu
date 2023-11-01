@@ -34,7 +34,7 @@
 #include "qemu/qemu-print.h"
 
 #include "hw/acpi/intel_ich4_acpi.h"
-#include "hw/southbridge/ich4_lpc.h"
+#include "hw/southbridge/intel_ich4_lpc.h"
 
 void intel_ich4_link_acpi(ICH4State *lpc, Intel_ICH4_ACPI_State *acpi)
 {
@@ -496,7 +496,7 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
     i8257_dma_init(isa_bus, 0);
     qemu_printf("Intel ICH4 LPC: DMA Controller is up\n");
 
-    /* MC146818 Compatible NVR */
+    /* NVR */
     if (!qdev_realize(DEVICE(&d->rtc), BUS(isa_bus), errp))
         return;
     qemu_printf("Intel ICH4 LPC: NVR has been sanitized\n");
@@ -506,12 +506,12 @@ static void intel_ich4_init(Object *obj)
 {
     ICH4State *d = ICH4_PCI_DEVICE(obj);
 
-    /* MC146818 Compatible NVR/CMOS */
+    /* NVR */
     qemu_printf("Intel ICH4 LPC: Mounting the NVR up\n");
-    object_initialize_child(obj, "rtc", &d->rtc, TYPE_MC146818_RTC);
+    object_initialize_child(obj, "rtc", &d->rtc, TYPE_INTEL_ICH4_NVR);
 }
 
-static void pci_ich4_class_init(ObjectClass *klass, void *data)
+static void intel_ich4_lpc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
@@ -534,7 +534,7 @@ static const TypeInfo ich4_pci_type_info = {
     .instance_size = sizeof(ICH4State),
     .instance_init = intel_ich4_init,
     .abstract = true,
-    .class_init = pci_ich4_class_init,
+    .class_init = intel_ich4_lpc_class_init,
     .interfaces = (InterfaceInfo[]) {{ INTERFACE_CONVENTIONAL_PCI_DEVICE }, { }, },
 };
 

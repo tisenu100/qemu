@@ -15,7 +15,7 @@
 
 #include "hw/acpi/intel_ich4_acpi.h"
 #include "hw/pci/pci_device.h"
-#include "hw/rtc/mc146818rtc.h"
+#include "hw/rtc/intel_ich4_nvr.h"
 
 /*
  * Reset Control Register: PCI-accessible ISA-Compatible Register at address
@@ -36,7 +36,7 @@ struct ICH4State {
     /* This member isn't used. Just for save/load compatibility */
     int32_t pci_irq_levels_vmstate[ICH4_NUM_PIRQS];
 
-    MC146818RtcState rtc;
+    Intel_ICH4_NVR_State rtc;
 
     /* Reset Control Register contents */
     uint8_t rcr;
@@ -52,8 +52,7 @@ typedef struct ICH4State ICH4State;
 void intel_ich4_link_acpi(ICH4State *lpc, Intel_ICH4_ACPI_State *acpi);
 
 #define TYPE_ICH4_PCI_DEVICE "intel-ich4-lpc"
-DECLARE_INSTANCE_CHECKER(ICH4State, ICH4_PCI_DEVICE,
-                         TYPE_ICH4_PCI_DEVICE)
+DECLARE_INSTANCE_CHECKER(ICH4State, ICH4_PCI_DEVICE, TYPE_ICH4_PCI_DEVICE)
 
 #define TYPE_ICH4_DEVICE "intel-ich4"
 

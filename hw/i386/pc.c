@@ -686,7 +686,7 @@ void pc_machine_done(Notifier *notifier, void *data)
     }
 
     /* set the number of CPUs */
-    x86_rtc_set_cpus_count(x86ms->rtc, x86ms->boot_cpus);
+//    x86_rtc_set_cpus_count(x86ms->rtc, x86ms->boot_cpus);
 
     fw_cfg_add_extra_pci_roots(pcms->bus, x86ms->fw_cfg);
 

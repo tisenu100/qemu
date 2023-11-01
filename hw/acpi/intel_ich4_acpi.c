@@ -58,9 +58,6 @@
 #define ACPI_ENABLE 0xf1
 #define ACPI_DISABLE 0xf0
 
-/* A Global State Device. Meant to make SMI Triggers happy */
-Intel_ICH4_ACPI_State *g;
-
 struct pci_status {
     uint32_t up; /* deprecated, maintained for migration compatibility */
     uint32_t down;
@@ -165,6 +162,7 @@ static uint64_t pm1_cnt_read(void *opaque, hwaddr addr, unsigned width)
 
 static void pm1_cnt_write(void *opaque, hwaddr addr, uint64_t val, unsigned width)
 {
+    Intel_ICH4_ACPI_State *s = INTEL_ICH4_ACPI(opaque);
     ACPIREGS *ar = opaque;
 
     ar->pm1.cnt.cnt = (val << ((addr == 1) * 8)) | ar->pm1.cnt.cnt; /* Avoid zeroing out the LSB bits when we write on the MSB ones and vice versa */
@@ -172,10 +170,10 @@ static void pm1_cnt_write(void *opaque, hwaddr addr, uint64_t val, unsigned widt
     qemu_printf("Intel ICH4 ACPI: PM Control update 0x%04x!\n", (int)ar->pm1.cnt.cnt);
 
     if(ar->pm1.cnt.cnt & 0x2000) { /* Bit 13: Sleep Enable */
-        if(g->smi_w[0] & 0x10) { /* SLEEP_ENABLE SMI */
-            g->smi_s[0] |= 0x10;
+        if(s->smi_w[0] & 0x10) { /* SLEEP_ENABLE SMI */
+            s->smi_s[0] |= 0x10;
             qemu_printf("Intel ICH4 ACPI: Ignoring Sleep Status as an SMI request was gived\n");
-            intel_ich4_provoke_smi(g);
+            intel_ich4_provoke_smi(s);
         }
         else {
             /*
@@ -210,10 +208,10 @@ static void pm1_cnt_write(void *opaque, hwaddr addr, uint64_t val, unsigned widt
         }
     }
 
-    if(!!(ar->pm1.cnt.cnt & 0x0004) && !!(g->smi_w[0] & 0x04)) {
-        g->smi_s[0] |= 0x04;
+    if(!!(ar->pm1.cnt.cnt & 0x0004) && !!(s->smi_w[0] & 0x04)) {
+        s->smi_s[0] |= 0x04;
         qemu_printf("Intel ICH4 ACPI: Global Release bit was set with BIOS_RLS. Requesting SMI interrupt\n");
-        intel_ich4_provoke_smi(g);
+        intel_ich4_provoke_smi(s);
     }
 }
 
@@ -502,7 +500,8 @@ static void intel_ich4_acpi_realize(PCIDevice *dev, Error **errp)
     /* Control */
     qemu_register_wakeup_notifier(&s->ar.wakeup);
     qemu_register_wakeup_support();
-    memory_region_init_io(&s->ar.pm1.cnt.io, memory_region_owner(&s->io), &pm1_cnt_ops, &s->ar, "acpi_pm1_cnt", 2);
+//  ar->wakeup.notify = acpi_notify_wakeup;
+    memory_region_init_io(&s->ar.pm1.cnt.io, memory_region_owner(&s->io), &pm1_cnt_ops, s, "acpi_pm1_cnt", 2);
     memory_region_add_subregion(&s->io, 0x04, &s->ar.pm1.cnt.io);
     qemu_printf("Intel ICH4 ACPI: ACPI PM Control\n");
 
@@ -518,8 +517,7 @@ static void intel_ich4_acpi_realize(PCIDevice *dev, Error **errp)
     qemu_printf("Intel ICH4 ACPI: ACPI GPE\n");
 
     /* SMI Handler */
-    g = INTEL_ICH4_ACPI(dev);
-    memory_region_init_io(&s->smi_io, memory_region_owner(&s->io), &intel_ich4_acpi_smi_handler_ops, s, "acpi_smi", 0x7f);
+    memory_region_init_io(&s->smi_io, memory_region_owner(&s->io), &intel_ich4_acpi_smi_handler_ops, s, "acpi_smi", 8);
     memory_region_add_subregion(&s->io, 0x30, &s->smi_io);
     qemu_printf("Intel ICH4 ACPI: SMI Handler\n");
 

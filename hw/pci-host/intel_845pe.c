@@ -251,7 +251,9 @@ static void intel_845pe_write_config(PCIDevice *dev, uint32_t address, uint32_t 
         if(!ro_only) {
             pci_default_write_config(dev, address, val, len);
             dev->config[address + i] = new_val;
-            qemu_printf("Intel 845PE MCH: dev->regs[0x%02x] = %02x\n", address + i, new_val);
+
+            if((address < 0x90) && (address > 0x96)) /* Don't log PAM Writes */
+                qemu_printf("Intel 845PE MCH: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
 
     }

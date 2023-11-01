@@ -88,6 +88,7 @@ config INTEL_ICH4
     select PCI_INTEL_845PE
     select INTEL_ICH4
     select IDE_INTEL_ICH4
+    select NVR_INTEL_ICH4
     select DIMM  
 
 
