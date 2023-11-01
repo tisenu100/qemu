@@ -74,8 +74,6 @@
 #define RTC_CLOCK_RATE            32768
 #define UIP_HOLD_LENGTH           (8 * NANOSECONDS_PER_SECOND / 32768)
 
-#define RTC_ISA_BASE 0x70
-
 static void rtc_set_time(Intel_ICH4_NVR_State *s);
 static void rtc_update_time(Intel_ICH4_NVR_State *s);
 static void rtc_set_cmos(Intel_ICH4_NVR_State *s, const struct tm *tm);
@@ -445,8 +443,10 @@ static void cmos_ioport_write(void *opaque, hwaddr addr,
     uint32_t old_period;
     bool update_periodic_timer;
 
-    if ((addr & 1) == 0) {
+    if (!(addr & 1)) {
         s->cmos_index = data & 0x7f;
+    } else if ((addr & 1) && ((addr % 4) > 1) && s->u128e && !((s->cmos_index >= 0x38) && (s->cmos_index <= 0x3f) && s->u128lock)) { /* Intel ICH4 allows us to lock that range */
+        s->cmos_data[s->cmos_index + 0x80] = data;
     } else {
         CMOS_DPRINTF("cmos: write index=0x%02x val=0x%02" PRIx64 "\n",
                      s->cmos_index, data);
@@ -469,11 +469,10 @@ static void cmos_ioport_write(void *opaque, hwaddr addr,
         case RTC_MONTH:
         case RTC_YEAR:
 //            s->cmos_data[s->cmos_index] = data;
-            /* if in set mode, do not update the time */
-//            if (rtc_running(s)) {
-//                rtc_set_time(s);
-//                check_update_timer(s);
-//            }
+            if (rtc_running(s)) {
+                rtc_set_time(s);
+                check_update_timer(s);
+            }
             break;
         case RTC_REG_A:
             update_periodic_timer = (s->cmos_data[RTC_REG_A] ^ data) & 0x0f;
@@ -553,7 +552,8 @@ static void cmos_ioport_write(void *opaque, hwaddr addr,
             /* cannot write to them */
             break;
         default:
-            s->cmos_data[s->cmos_index] = data;
+            if(!((s->cmos_index >= 0x38) && (s->cmos_index <= 0x3f) && s->l128lock)) /* Intel ICH4 allows us to lock that range */
+                s->cmos_data[s->cmos_index] = data;
             break;
         }
     }
@@ -596,7 +596,7 @@ static void rtc_get_time(Intel_ICH4_NVR_State *s, struct tm *tm)
     tm->tm_mon = rtc_from_bcd(s, s->cmos_data[RTC_MONTH]) - 1;
     tm->tm_year =
         rtc_from_bcd(s, s->cmos_data[RTC_YEAR]) + s->base_year +
-        rtc_from_bcd(s, s->cmos_data[RTC_CENTURY]) * 100 - 1900;
+        rtc_from_bcd(s, s->cmos_data[RTC_CENTURY]) * 100 - 1980;
 }
 
 static void rtc_set_time(Intel_ICH4_NVR_State *s)
@@ -634,8 +634,6 @@ static void rtc_set_cmos(Intel_ICH4_NVR_State *s, const struct tm *tm)
     year = tm->tm_year + 1980 - s->base_year;
     s->cmos_data[RTC_YEAR] = rtc_to_bcd(s, year % 100);
     s->cmos_data[RTC_CENTURY] = rtc_to_bcd(s, year / 100);
-    qemu_printf("%02x/%02x/%02x %02x:%02x\n", s->cmos_data[RTC_YEAR], s->cmos_data[RTC_MONTH], s->cmos_data[RTC_DAY_OF_MONTH], s->cmos_data[RTC_MINUTES], s->cmos_data[RTC_SECONDS]);
-
 }
 
 static void rtc_update_time(Intel_ICH4_NVR_State *s)
@@ -685,8 +683,10 @@ static uint64_t cmos_ioport_read(void *opaque, hwaddr addr,
 {
     Intel_ICH4_NVR_State *s = opaque;
     int ret;
-    if ((addr & 1) == 0) {
-        return 0xff;
+    if (!(addr & 1)) {
+        ret = 0xff;
+    } else if ((addr & 1) && ((addr % 4) > 1) && s->u128e) {
+            ret = s->cmos_data[s->cmos_index + 0x80];
     } else {
         switch(s->cmos_index) {
         case RTC_IBM_PS2_CENTURY_BYTE:
@@ -740,8 +740,9 @@ static uint64_t cmos_ioport_read(void *opaque, hwaddr addr,
         }
         CMOS_DPRINTF("cmos: read index=0x%02x val=0x%02x\n",
                      s->cmos_index, ret);
-        return ret;
     }
+
+    return ret;
 }
 
 void intel_ich4_nvr_write_cmos(Intel_ICH4_NVR_State *s, int addr, int val)
@@ -931,7 +932,7 @@ static void rtc_realizefn(DeviceState *dev, Error **errp)
     s->suspend_notifier.notify = rtc_notify_suspend;
     qemu_register_suspend_notifier(&s->suspend_notifier);
 
-    memory_region_init_io(&s->io, OBJECT(s), &cmos_ops, s, "rtc", 2);
+    memory_region_init_io(&s->io, OBJECT(s), &cmos_ops, s, "rtc", 8);
     isa_register_ioport(isadev, &s->io, s->io_base);
 
     /* register rtc 0x70 port for coalesced_pio */
@@ -966,15 +967,14 @@ Intel_ICH4_NVR_State *intel_ich4_nvr_init(ISABus *bus, int base_year,
         isa_connect_gpio_out(isadev, 0, s->isairq);
     }
 
-    object_property_add_alias(qdev_get_machine(), "rtc-time", OBJECT(isadev),
-                              "date");
+    object_property_add_alias(qdev_get_machine(), "rtc-time", OBJECT(isadev), "date");
 
     return s;
 }
 
 static Property intel_ich4_nvr_properties[] = {
     DEFINE_PROP_INT32("base_year", Intel_ICH4_NVR_State, base_year, 1980),
-    DEFINE_PROP_UINT16("iobase", Intel_ICH4_NVR_State, io_base, RTC_ISA_BASE),
+    DEFINE_PROP_UINT16("iobase", Intel_ICH4_NVR_State, io_base, 0x70),
     DEFINE_PROP_UINT8("irq", Intel_ICH4_NVR_State, isairq, RTC_ISA_IRQ),
     DEFINE_PROP_LOSTTICKPOLICY("lost_tick_policy", Intel_ICH4_NVR_State,
                                lost_tick_policy, LOST_TICK_POLICY_DISCARD),

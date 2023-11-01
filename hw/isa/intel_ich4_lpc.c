@@ -3,6 +3,7 @@
  *
  * Copyright (c) 2006 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -32,6 +33,7 @@
 #include "sysemu/runstate.h"
 #include "migration/vmstate.h"
 #include "qemu/qemu-print.h"
+
 
 #include "hw/acpi/intel_ich4_acpi.h"
 #include "hw/southbridge/intel_ich4_lpc.h"
@@ -158,6 +160,28 @@ static void intel_ich4_set_irq(void *opaque, int pirq, int level)
 {
     ICH4State *ich4 = opaque;
     intel_ich4_pirq(ich4);
+}
+
+static void intel_ich4_nvr_reset(ICH4State *s)
+{
+    s->rtc.u128e = 0;
+    s->rtc.l128lock = 0;
+    s->rtc.u128lock = 0;
+
+    qemu_printf("Intel ICH4 NVR: Upper Bank Configuration has been reset\n");
+}
+
+static void intel_ich4_nvr(int u128e, int l128lock, int u128lock, ICH4State *s)
+{
+    s->rtc.u128e = !!u128e;
+
+    qemu_printf("Intel ICH4 NVR: Upper 128-byte range %s!\n", u128e ? "enabled" : "disabled");
+
+    if(!s->rtc.l128lock) /* Per Intel ICH4 datasheet, once you lock the 38-3F range, you can't unlock unless you reset. */
+        s->rtc.l128lock = !!l128lock;
+    
+    if(!s->rtc.u128lock)
+        s->rtc.u128lock = !!u128lock;
 }
 
 static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t val, int len)
@@ -351,6 +375,10 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
             */
             intel_ich4_pirq(ich4);
         break;
+
+        case 0xd8:
+            intel_ich4_nvr(dev->config[0xd8] & 0x04, dev->config[0xd8] & 0x08, dev->config[0xd8] & 0x10, ich4);
+        break;
     }
 
 }
@@ -499,6 +527,9 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
     /* NVR */
     if (!qdev_realize(DEVICE(&d->rtc), BUS(isa_bus), errp))
         return;
+    
+    intel_ich4_nvr_reset(d);
+
     qemu_printf("Intel ICH4 LPC: NVR has been sanitized\n");
 }
 

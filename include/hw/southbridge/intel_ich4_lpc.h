@@ -36,6 +36,7 @@ struct ICH4State {
     /* This member isn't used. Just for save/load compatibility */
     int32_t pci_irq_levels_vmstate[ICH4_NUM_PIRQS];
 
+    /* NVR */
     Intel_ICH4_NVR_State rtc;
 
     /* Reset Control Register contents */

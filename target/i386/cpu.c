@@ -2453,14 +2453,14 @@ static const X86CPUDefinition builtin_x86_defs[] = {
     },
     {
         .name = "netburst",
-        .level = 0x05,
+        .level = 2,
         .vendor = CPUID_VENDOR_INTEL,
-        .family = 0x0f,
-        .model = 0x03,
-        .stepping = 0x04,
+        .family = 14, /* 15 */
+        .model = 2,
+        .stepping = 9,
         .features[FEAT_1_ECX] = 0x00000009, /* 0x0000441d */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
-        .xlevel = 0,
+        .xlevel = 0x80000004,
         .model_id = "Intel(R) Pentium(R) 4 CPU 3.00GHz",
     },
     {

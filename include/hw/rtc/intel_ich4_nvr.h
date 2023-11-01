@@ -22,6 +22,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH4_NVR_State, INTEL_ICH4_NVR)
 struct Intel_ICH4_NVR_State {
     ISADevice parent_obj;
 
+    /* Qemu RTC Stuff */
     MemoryRegion io;
     MemoryRegion coalesced_io;
     uint8_t cmos_data[256]; /* 2 Banks (128 Byte Standard + 128 Byte Extended) */
@@ -47,6 +48,12 @@ struct Intel_ICH4_NVR_State {
     Notifier clock_reset_notifier;
     LostTickPolicy lost_tick_policy;
     Notifier suspend_notifier;
+
+    /* Upper Bank Handling */
+    bool u128e;
+    bool l128lock;
+    bool u128lock;
+
     QLIST_ENTRY(Intel_ICH4_NVR_State) link;
 };
 
