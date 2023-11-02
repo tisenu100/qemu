@@ -26,7 +26,9 @@ struct I8257State {
 
     /* <public> */
     int32_t base;
+    int32_t base_alias;
     int32_t page_base;
+    int32_t page_base_alias;
     int32_t pageh_base;
     int32_t dshift;
 
@@ -36,12 +38,14 @@ struct I8257State {
     uint8_t flip_flop;
     I8257Regs regs[4];
     MemoryRegion channel_io;
+    MemoryRegion channel_io_alias;
     MemoryRegion cont_io;
 
     QEMUBH *dma_bh;
     bool dma_bh_scheduled;
     int running;
     PortioList portio_page;
+    PortioList portio_page_alias;
     PortioList portio_pageh;
 };
 

@@ -69,7 +69,7 @@ static void intel_845pe_realize(PCIDevice *dev, Error **errp)
 
 static void intel_845pe_smram(Intel_845PE_PCI_State *d)
 {
-//    PCIDevice *pd = PCI_DEVICE(d);
+    PCIDevice *pd = PCI_DEVICE(d);
 
     /*
         Per the Intel 845PE datasheet on Page 65:
@@ -86,11 +86,16 @@ static void intel_845pe_smram(Intel_845PE_PCI_State *d)
         We just implement whatever Qemu needs according to the 440FX. The BIOS use the low SMRAM anyways.
     */
 
-//    memory_region_transaction_begin();
-//    memory_region_set_enabled(&d->smram_region, pd->config[0x9d] & 0x40); /* Bit 6 */
-//    memory_region_set_enabled(&d->smram, pd->config[0x9d] & 0x10); /* Bit 3 */
-//    memory_region_set_enabled(&d->high_smram, pd->config[0x9e] & 0x80); /* For High SMRAM. Page 66 of the Intel 845PE datasheet. */
-//    memory_region_transaction_commit();
+    memory_region_transaction_begin();
+    if(pd->config[0x9d] & 0x20) {
+        qemu_printf("Intel 845 PE: SMRAM is locked for overwatch\n");
+        memory_region_set_enabled(&d->smram, false); /* Bit 5 */
+    }
+    else memory_region_set_enabled(&d->smram, pd->config[0x9d] & 0x40); /* Bit 6 */
+
+    memory_region_set_enabled(&d->low_smram, pd->config[0x9d] & 0x10); /* Bit 3 */
+    memory_region_set_enabled(&d->high_smram, pd->config[0x9e] & 0x80); /* For High SMRAM. Page 66 of the Intel 845PE datasheet. */
+    memory_region_transaction_commit();
 }
 
 static void intel_845pe_pam(Intel_845PE_PCI_State *d)
@@ -252,7 +257,7 @@ static void intel_845pe_write_config(PCIDevice *dev, uint32_t address, uint32_t 
             pci_default_write_config(dev, address, val, len);
             dev->config[address + i] = new_val;
 
-            if((address < 0x90) && (address > 0x96)) /* Don't log PAM Writes */
+            if(((address + i) < 0x90) && ((address + i) > 0x96)) /* Don't log PAM Writes */
                 qemu_printf("Intel 845PE MCH: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
 
@@ -410,6 +415,7 @@ static void intel_845pe_pcihost_initfn(Object *obj)
 static void intel_845pe_reset(DeviceState *s)
 {
     PCIDevice *dev = PCI_DEVICE(s);
+    Intel_845PE_PCI_State *d = INTEL_845PE_PCI_DEVICE(s);
 
     dev->config[0x04] = 0x06;
     dev->config[0x06] = 0x90;
@@ -427,6 +433,9 @@ static void intel_845pe_reset(DeviceState *s)
     dev->config[0xe5] = 0xa0;
     dev->config[0xe6] = 0x05;
     dev->config[0xe7] = 0x01;
+
+    intel_845pe_pam(d);
+    intel_845pe_smram(d);
 }
 
 static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
@@ -477,6 +486,11 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     memory_region_init(&f->smram, OBJECT(d), "smram", 4 * GiB);
     memory_region_set_enabled(&f->smram, true);
 
+    /* CPU SMM 30000-4FFFF section */
+    memory_region_init_alias(&f->cpu_smram, OBJECT(d), "cpu-smm", s->ram_memory, 0x30000, 0x20000);
+    memory_region_set_enabled(&f->cpu_smram, true);
+    memory_region_add_subregion(&f->smram, 0x30000, &f->cpu_smram);
+
     /* Low SMRAM A0000-BFFFF section */
     memory_region_init_alias(&f->low_smram, OBJECT(d), "smram-low", s->ram_memory, 0xa0000, 0x20000);
     memory_region_set_enabled(&f->low_smram, true);
@@ -498,13 +512,6 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
         qemu_printf("Intel 845PE MCH: PAM Region 0x%05x is being prepared\n", PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE);
     }
 
-    /* We'll need it to calculate DRAM banking later on */
-//    ram_addr_t ram_size = s->below_4g_mem_size + s->above_4g_mem_size;
-//    ram_size = ram_size / 8 / 1024 / 1024;
-//    if (ram_size > 255) {
-//        ram_size = 255;
-//    }
-//    d->config[I440FX_COREBOOT_RAM_SIZE] = ram_size;
     intel_845pe_pam(f);
     intel_845pe_smram(f);
 }

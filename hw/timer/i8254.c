@@ -345,6 +345,9 @@ static void pit_realizefn(DeviceState *dev, Error **errp)
     memory_region_init_io(&pit->ioports, OBJECT(pit), &pit_ioport_ops,
                           pit, "pit", 4);
 
+    memory_region_init_io(&pit->ioports_alias, OBJECT(pit), &pit_ioport_ops,
+                          pit, "pit", 4);
+
     qdev_init_gpio_in(dev, pit_irq_control, 1);
 
     pc->parent_realize(dev, errp);

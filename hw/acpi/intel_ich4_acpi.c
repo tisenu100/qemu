@@ -187,7 +187,7 @@ static void pm1_cnt_write(void *opaque, hwaddr addr, uint64_t val, unsigned widt
                 5: Suspend to RAM
                 6: Suspend to Disk
                 7: Soft Off
-            */ 
+            */
             switch((ar->pm1.cnt.cnt >> 10) & 7) {
                 case 5:
                     qemu_printf("Intel ICH4 ACPI: Suspending to RAM\n");

@@ -172,8 +172,10 @@ static void pit_common_realize(DeviceState *dev, Error **errp)
     PITCommonState *pit = PIT_COMMON(dev);
 
     isa_register_ioport(isadev, &pit->ioports, pit->iobase);
+    isa_register_ioport(isadev, &pit->ioports_alias, pit->iobase + 0x10);
 
     qdev_set_legacy_instance_id(dev, pit->iobase, 2);
+    qdev_set_legacy_instance_id(dev, pit->iobase + 0x10, 2);
 }
 
 static const VMStateDescription vmstate_pit_channel = {

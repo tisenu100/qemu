@@ -65,8 +65,10 @@ struct PICCommonState {
     qemu_irq int_out[1];
     uint32_t master; /* reflects /SP input pin */
     uint32_t iobase;
+    uint32_t iobase_alias;
     uint32_t elcr_addr;
     MemoryRegion base_io;
+    MemoryRegion base_io_alias;
     MemoryRegion elcr_io;
 };
 

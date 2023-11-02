@@ -65,16 +65,15 @@
 #include "hw/acpi/intel_ich4_acpi.h"
 #include "qemu/qemu-print.h"
 
-#define MAX_IDE_BUS 2
-
 /*
  * Return the global irq number corresponding to a given device irq
  * pin. We could also use the bus number to have a more precise mapping.
  */
 static int pc_pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
 {
+    qemu_printf("PC: INTX %d\n", pci_intx);
     int slot_addend;
-    slot_addend = PCI_SLOT(PCI_DEVFN(0, 0)) - 1;
+    slot_addend = PCI_SLOT(pci_dev->devfn) - 1;
     return (pci_intx + slot_addend) & 7;
 }
 
@@ -227,10 +226,6 @@ static void pc_init1(MachineState *machine)
     /* Set up LPC Interrupts */
     isa_bus_register_input_irqs(isa_bus, x86ms->gsi);
 
-    /* Initialize the PIC */
-    qemu_printf("PC: Loading i8259 Compatible PIC...\n");
-    pc_i8259_create(isa_bus, gsi_state->i8259_irq);
-
     /* Setup APIC Interrupts */
     ioapic_init_gsi(gsi_state, "intel_845pe");
 
@@ -238,16 +233,18 @@ static void pc_init1(MachineState *machine)
     if (tcg_enabled()) {
         x86_register_ferr_irq(x86ms->gsi[13]);
     }
-
+ 
     assert(pcms->vmport != ON_OFF_AUTO__MAX);
     if (pcms->vmport == ON_OFF_AUTO_AUTO) {
         pcms->vmport = ON_OFF_AUTO_ON;
     }
 
     /* Now that we got the basics up. Let's load our basic components */
+    qemu_printf("PC: Loading Glue Components...\n");
     pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, true, 0x08); /* VLSI Logic */
-    object_property_add_link(OBJECT(machine), "rtc_state", TYPE_ISA_DEVICE, (Object **)&x86ms->rtc, object_property_allow_set_link, OBJ_PROP_LINK_STRONG);
+    object_property_add_link(OBJECT(machine), "rtc_state", TYPE_ISA_DEVICE, (Object **)&x86ms->rtc, object_property_allow_set_link, OBJ_PROP_LINK_STRONG); /* NVR */
     object_property_set_link(OBJECT(machine), "rtc_state", OBJECT(rtc_state), &error_abort);
+    pc_i8259_create(isa_bus, gsi_state->i8259_irq); /* PIC Controller*/
 
     /* IDE Compatible Drives */
     qemu_printf("PC: Loading IDE...\n");
@@ -293,12 +290,11 @@ static void pc_init1(MachineState *machine)
     uint8_t *spd[2];
 
     spd[0] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 0 1 */
-
     spd[1] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 2 3 */
 
     /* Initialize the SMBus SPD data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
     smbus_eeprom_init_one(pcms->smbus, 0x50, spd[0]);       
-    smbus_eeprom_init_one(pcms->smbus, 0x51, spd[1]);       
+    smbus_eeprom_init_one(pcms->smbus, 0x51, spd[1]);    
 
     /* Link ACPIState with the LPC so we can remap it's I/O base */
     intel_ich4_link_acpi(lpc, acpi);
