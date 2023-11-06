@@ -24,6 +24,7 @@
 #include "hw/i2c/pm_smbus.h"
 #include "hw/i2c/smbus_master.h"
 #include "migration/vmstate.h"
+#include "trace.h"
 
 #define SMBHSTSTS       0x00
 #define SMBHSTCNT       0x02
@@ -75,6 +76,7 @@ static void smb_transaction(PMSMBus *s)
     int ret;
 
     qemu_printf("SMBus trans addr=0x%02x prot=0x%02x\n", addr, prot);
+    trace_smbus_transaction(addr, prot);
     /* Transaction isn't exec if STS_DEV_ERR bit set */
     if ((s->smb_stat & STS_DEV_ERR) != 0)  {
         goto error;
@@ -250,7 +252,11 @@ static void smb_ioport_writeb(void *opaque, hwaddr addr, uint64_t val,
     PMSMBus *s = opaque;
     uint8_t clear_byte_done;
 
+<<<<<<< HEAD
 //    qemu_printf("SMB writeb port=0x%04" HWADDR_PRIx " val=0x%02" PRIx64 "\n", addr, val);
+=======
+    trace_smbus_ioport_writeb(addr, val);
+>>>>>>> upstream/master
     switch(addr) {
     case SMBHSTSTS:
         clear_byte_done = s->smb_stat & val & STS_BYTE_DONE;
@@ -420,7 +426,11 @@ static uint64_t smb_ioport_readb(void *opaque, hwaddr addr, unsigned width)
         val = 0;
         break;
     }
+<<<<<<< HEAD
 //    qemu_printf("SMB readb port=0x%04" HWADDR_PRIx " val=0x%02x\n", addr, val);
+=======
+    trace_smbus_ioport_readb(addr, val);
+>>>>>>> upstream/master
 
     if (s->set_irq) {
         s->set_irq(s, smb_irq_value(s));
