@@ -29,7 +29,7 @@ struct Intel_845PE_PCI_State {
     /*< public >*/
 
     PAMMemoryRegion pam_regions[PAM_REGIONS_COUNT];
-    MemoryRegion smram_region;
+    MemoryRegion smram_blackhole, smram_region, high_smram_region;
     MemoryRegion cpu_smram, smram, low_smram, high_smram;
 };
 

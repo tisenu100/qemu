@@ -171,6 +171,7 @@ void acpi_pm1_cnt_init(ACPIREGS *ar, MemoryRegion *parent,
 void acpi_pm1_cnt_update(ACPIREGS *ar,
                          bool sci_enable, bool sci_disable);
 void acpi_pm1_cnt_reset(ACPIREGS *ar);
+void acpi_notify_wakeup(Notifier *notifier, void *data);
 
 /* GPE0 */
 void acpi_gpe_init(ACPIREGS *ar, uint8_t len);

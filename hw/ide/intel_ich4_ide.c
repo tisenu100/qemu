@@ -288,8 +288,8 @@ static void intel_ich4_ide_realize(PCIDevice *dev, Error **errp)
     qemu_printf("Intel ICH4 IDE: Bus Mastering has been set\n");
 
     /* Master & Slave drives */
-    intel_ich4_ide_start_drive(d, 0x3f0, 0x3f6, 14, 0, errp); /* Primary */
-    intel_ich4_ide_start_drive(d, 0x170, 0x176, 15, 1, errp); /* Slave */
+    intel_ich4_ide_start_drive(d, 0x1f0, 0x3f6, 14, 0, errp); /* Primary */
+    intel_ich4_ide_start_drive(d, 0x170, 0x376, 15, 1, errp); /* Slave */
 
     qemu_printf("Intel ICH4 IDE: IDE Drives have been set\n");
 }

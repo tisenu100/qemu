@@ -354,7 +354,7 @@ int acpi_get_slic_oem(AcpiSlicOem *oem)
     return -1;
 }
 
-static void acpi_notify_wakeup(Notifier *notifier, void *data)
+void acpi_notify_wakeup(Notifier *notifier, void *data)
 {
     ACPIREGS *ar = container_of(notifier, ACPIREGS, wakeup);
     WakeupReason *reason = data;
@@ -459,9 +459,9 @@ static void acpi_pm_evt_write(void *opaque, hwaddr addr, uint64_t val,
 static const MemoryRegionOps acpi_pm_evt_ops = {
     .read = acpi_pm_evt_read,
     .write = acpi_pm_evt_write,
-    .impl.min_access_size = 2,
+    .impl.min_access_size = 4,
     .valid.min_access_size = 1,
-    .valid.max_access_size = 2,
+    .valid.max_access_size = 4,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 

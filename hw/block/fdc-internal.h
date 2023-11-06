@@ -155,4 +155,6 @@ int fdctrl_transfer_handler(void *opaque, int nchan, int dma_pos, int dma_len);
 
 void fdctrl_init_drives(FloppyBus *bus, DriveInfo **fds);
 
+FDCtrl isa_fdc_get_controller(ISADevice *fdc);
+
 #endif

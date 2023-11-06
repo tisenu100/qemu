@@ -596,7 +596,7 @@ static void rtc_get_time(Intel_ICH4_NVR_State *s, struct tm *tm)
     tm->tm_mon = rtc_from_bcd(s, s->cmos_data[RTC_MONTH]) - 1;
     tm->tm_year =
         rtc_from_bcd(s, s->cmos_data[RTC_YEAR]) + s->base_year +
-        rtc_from_bcd(s, s->cmos_data[RTC_CENTURY]) * 100 - 1980;
+        rtc_from_bcd(s, s->cmos_data[RTC_CENTURY]) * 100 - 1900;
 }
 
 static void rtc_set_time(Intel_ICH4_NVR_State *s)
@@ -631,7 +631,7 @@ static void rtc_set_cmos(Intel_ICH4_NVR_State *s, const struct tm *tm)
     s->cmos_data[RTC_DAY_OF_WEEK] = rtc_to_bcd(s, tm->tm_wday + 1);
     s->cmos_data[RTC_DAY_OF_MONTH] = rtc_to_bcd(s, tm->tm_mday);
     s->cmos_data[RTC_MONTH] = rtc_to_bcd(s, tm->tm_mon + 1);
-    year = tm->tm_year + 1980 - s->base_year;
+    year = tm->tm_year + 1900 - s->base_year;
     s->cmos_data[RTC_YEAR] = rtc_to_bcd(s, year % 100);
     s->cmos_data[RTC_CENTURY] = rtc_to_bcd(s, year / 100);
 }
@@ -973,7 +973,7 @@ Intel_ICH4_NVR_State *intel_ich4_nvr_init(ISABus *bus, int base_year,
 }
 
 static Property intel_ich4_nvr_properties[] = {
-    DEFINE_PROP_INT32("base_year", Intel_ICH4_NVR_State, base_year, 1980),
+    DEFINE_PROP_INT32("base_year", Intel_ICH4_NVR_State, base_year, 1900),
     DEFINE_PROP_UINT16("iobase", Intel_ICH4_NVR_State, io_base, 0x70),
     DEFINE_PROP_UINT8("irq", Intel_ICH4_NVR_State, isairq, RTC_ISA_IRQ),
     DEFINE_PROP_LOSTTICKPOLICY("lost_tick_policy", Intel_ICH4_NVR_State,

@@ -32,5 +32,6 @@ void smbus_eeprom_init(I2CBus *bus, int nb_eeprom,
 
 enum sdram_type { SDR = 0x4, DDR = 0x7, DDR2 = 0x8 };
 uint8_t *spd_data_generate(enum sdram_type type, ram_addr_t size);
+uint8_t *spd_data_generate_real(void);
 
 #endif

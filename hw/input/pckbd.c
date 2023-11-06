@@ -63,6 +63,10 @@
 #define KBD_CCMD_KBD_ENABLE        0xAE
 /* read input port */
 #define KBD_CCMD_READ_INPORT       0xC0
+/* AMI Read Mode */
+#define KBD_AMI_READ_MODE          0xCA
+/* AMI Write Mode */
+#define KBD_AMI_WRITE_MODE          0xCB
 /* read output port */
 #define KBD_CCMD_READ_OUTPORT      0xD0
 /* write output port */
@@ -372,6 +376,12 @@ static void kbd_write_command(void *opaque, hwaddr addr,
     case KBD_CCMD_READ_INPORT:
         kbd_queue(s, 0x80, 0);
         break;
+    case KBD_AMI_READ_MODE:
+        kbd_queue(s, 0x01, 0);
+    break;
+    case KBD_AMI_WRITE_MODE:
+        s->mode |= 0x01;
+    break;
     case KBD_CCMD_READ_OUTPORT:
         kbd_queue(s, s->outport, 0);
         break;

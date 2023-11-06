@@ -58,6 +58,9 @@
 #include "hw/pci-host/intel_845pe.h"
 #include "hw/southbridge/intel_ich4_lpc.h"
 #include "hw/rtc/intel_ich4_nvr.h"
+#include "hw/isa/winbond_w83627hf.h"
+#include "hw/block/fdc.h"
+#include "hw/block/fdc-internal.h"
 #include "hw/ide/isa.h"
 #include "hw/ide/pci.h"
 #include "hw/ide/piix.h"
@@ -71,7 +74,6 @@
  */
 static int pc_pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
 {
-    qemu_printf("PC: INTX %d\n", pci_intx);
     int slot_addend;
     slot_addend = PCI_SLOT(pci_dev->devfn) - 1;
     return (pci_intx + slot_addend) & 7;
@@ -85,9 +87,6 @@ static void pc_init1(MachineState *machine)
     X86MachineState *x86ms = X86_MACHINE(machine);
     MemoryRegion *system_memory = get_system_memory();
     MemoryRegion *system_io = get_system_io();
-    qemu_irq smi_irq;
-    GSIState *gsi_state;
-    ISADevice *rtc_state;
     MemoryRegion *ram_memory;
     MemoryRegion *pci_memory = NULL;
     MemoryRegion *rom_memory = system_memory;
@@ -95,36 +94,6 @@ static void pc_init1(MachineState *machine)
     uint64_t hole64_size = 0;
 
     qemu_printf("PC: Loading Memory...\n");
-    /*
-     * Calculate ram split, for memory below and above 4G.  It's a bit
-     * complicated for backward compatibility reasons ...
-     *
-     *  - Traditional split is 3.5G (lowmem = 0xe0000000).  This is the
-     *    default value for max_ram_below_4g now.
-     *
-     *  - Then, to gigabyte align the memory, we move the split to 3G
-     *    (lowmem = 0xc0000000).  But only in case we have to split in
-     *    the first place, i.e. ram_size is larger than (traditional)
-     *    lowmem.  And for new machine types (gigabyte_align = true)
-     *    only, for live migration compatibility reasons.
-     *
-     *  - Next the max-ram-below-4g option was added, which allowed to
-     *    reduce lowmem to a smaller value, to allow a larger PCI I/O
-     *    window below 4G.  qemu doesn't enforce gigabyte alignment here,
-     *    but prints a warning.
-     *
-     *  - Finally max-ram-below-4g got updated to also allow raising lowmem,
-     *    so legacy non-PAE guests can get as much memory as possible in
-     *    the 32bit address space below 4G.
-     *
-     *
-     * Examples:
-     *    qemu -M pc-1.7 -m 4G    (old default)    -> 3584M low,  512M high
-     *    qemu -M pc -m 4G        (new default)    -> 3072M low, 1024M high
-     *    qemu -M pc,max-ram-below-4g=2G -m 4G     -> 2048M low, 2048M high
-     *    qemu -M pc,max-ram-below-4g=4G -m 3968M  -> 3968M low (=4G-128M)
-     */
-
     ram_memory = machine->ram;
     if (!pcms->max_ram_below_4g) {
         pcms->max_ram_below_4g = 0xe0000000; /* default: 3.5G */
@@ -136,7 +105,7 @@ static void pc_init1(MachineState *machine)
                 lowmem = 0xc0000000;
             }
             if (lowmem & (1 * GiB - 1)) {
-                warn_report("Large machine and max_ram_below_4g (%" PRIu64 ") not a multiple of 1G; possible bad performance.", pcms->max_ram_below_4g);
+                warn_report("Qemu: Large machine and max_ram_below_4g (%" PRIu64 ") not a multiple of 1G; possible bad performance.", pcms->max_ram_below_4g);
             }
         }
     }
@@ -155,7 +124,7 @@ static void pc_init1(MachineState *machine)
 
     /* KVM */
     if (kvm_enabled() && pcmc->kvmclock_enabled) {
-        qemu_printf("PC: KVM Detected. Starting Clock...\n");
+        qemu_printf("PC: KVM Clock Detected...\n");
         kvmclock_create(pcmc->kvmclock_create_always);
     }
 
@@ -203,15 +172,14 @@ static void pc_init1(MachineState *machine)
 
     /* IRQ Interrupts */
     qemu_printf("PC: Receiving Interrupts...\n");
-    gsi_state = pc_gsi_create(&x86ms->gsi, pcmc->pci_enabled);
+    GSIState *gsi_state = pc_gsi_create(&x86ms->gsi, pcmc->pci_enabled);
 
     /* Initialize the ICH4 */
     qemu_printf("PC: Starting Intel ICH4...\n");
     ICH4State *lpc;
-    PCIDevice *intel_ich4_lpc;
 
     qemu_printf("PC: Starting Intel ICH4 LPC...\n");
-    intel_ich4_lpc = pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1f, 0), TYPE_ICH4_DEVICE); /* Assign the LPC Bridge as a PCI device */
+    PCIDevice *intel_ich4_lpc = pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1f, 0), TYPE_ICH4_DEVICE); /* Assign the LPC Bridge as a PCI device */
 
     lpc = ICH4_PCI_DEVICE(intel_ich4_lpc); /* Intel ICH4 LPC Bridge */
     lpc->pic = x86ms->gsi;
@@ -221,7 +189,7 @@ static void pc_init1(MachineState *machine)
     ISABus *isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(lpc), "isa.0"));
 
     /* Mount the RTC */
-    rtc_state = ISA_DEVICE(object_resolve_path_component(OBJECT(intel_ich4_lpc), "rtc"));
+    ISADevice *rtc_state = ISA_DEVICE(object_resolve_path_component(OBJECT(intel_ich4_lpc), "rtc"));
 
     /* Set up LPC Interrupts */
     isa_bus_register_input_irqs(isa_bus, x86ms->gsi);
@@ -241,10 +209,34 @@ static void pc_init1(MachineState *machine)
 
     /* Now that we got the basics up. Let's load our basic components */
     qemu_printf("PC: Loading Glue Components...\n");
-    pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, true, 0x08); /* VLSI Logic */
+    pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, false, 0x08); /* VLSI Logic */
     object_property_add_link(OBJECT(machine), "rtc_state", TYPE_ISA_DEVICE, (Object **)&x86ms->rtc, object_property_allow_set_link, OBJ_PROP_LINK_STRONG); /* NVR */
     object_property_set_link(OBJECT(machine), "rtc_state", OBJECT(rtc_state), &error_abort);
-    pc_i8259_create(isa_bus, gsi_state->i8259_irq); /* PIC Controller*/
+    pc_i8259_create(isa_bus, gsi_state->i8259_irq); /* PIC Controller */
+
+    /*
+        Winbond W83827HF LPC Super I/O. Used by most Pentium 4 boards.
+        Some used the ITE 87xx series of LPC Super I/Os too.
+        OEMs tended to use the SMSC FDC87xxxx.
+    */
+    qemu_printf("PC: Loading Winbond W83627HF...");
+    ISADevice *winbond = isa_new(TYPE_WINBOND_W83627HF); /* Winbond W83827HF */
+    WinbondState *winbond_mount = WINBOND_W83627HF(winbond); /* Meant for mounting */
+    isa_realize_and_unref(winbond, isa_bus, &error_fatal); /* Mount it to the LPC bus */
+
+    /* Form the FDC and then bind it to the Winbond to program it */
+    ISADevice *fdc = isa_new(TYPE_ISA_FDC);
+    DriveInfo *fd[MAX_FD];
+
+    for (int i = 0; i < MAX_FD; i++) {
+        fd[i] = drive_get(IF_FLOPPY, 0, i);
+    }
+
+    isa_realize_and_unref(fdc, isa_bus, &error_fatal);
+    isa_fdc_init_drives(fdc, fd);
+    FDCtrl fdd = isa_fdc_get_controller(fdc);
+
+    winbond_link_fdc(winbond_mount, fdd); /* Mount the FDC to the Winbond */
 
     /* IDE Compatible Drives */
     qemu_printf("PC: Loading IDE...\n");
@@ -279,7 +271,7 @@ static void pc_init1(MachineState *machine)
     qdev_connect_gpio_out(DEVICE(intel_ich4_acpi), 0, x86ms->gsi[9]);
 
     /* SMI Trigger */
-    smi_irq = qemu_allocate_irq(pc_acpi_smi_interrupt, first_cpu, 0);
+    qemu_irq smi_irq = qemu_allocate_irq(pc_acpi_smi_interrupt, first_cpu, 0);
     qdev_connect_gpio_out_named(DEVICE(intel_ich4_acpi), "smi-irq", 0, smi_irq);
 
     /* SMBus */
@@ -289,8 +281,11 @@ static void pc_init1(MachineState *machine)
     /* Intel 845PE utilizes DDR Memory */
     uint8_t *spd[2];
 
-    spd[0] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 0 1 */
-    spd[1] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 2 3 */
+//    spd[0] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 0 1 */
+//    spd[1] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 2 3 */
+
+    spd[0] = spd_data_generate_real();
+    spd[1] = spd_data_generate_real();
 
     /* Initialize the SMBus SPD data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
     smbus_eeprom_init_one(pcms->smbus, 0x50, spd[0]);       

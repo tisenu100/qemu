@@ -34,7 +34,6 @@
 #include "migration/vmstate.h"
 #include "qemu/qemu-print.h"
 
-
 #include "hw/acpi/intel_ich4_acpi.h"
 #include "hw/southbridge/intel_ich4_lpc.h"
 
@@ -132,7 +131,7 @@ static void intel_ich4_pirq(ICH4State *ich4)
         uint64_t mask; /* Qemu magic */
 
         if(!!enabled) {
-            qemu_printf("Intel ICH4 LPC: PIRQ%c has the IRQ of %d\n", 'A' + i, pic_irq & 0x0f);
+//            qemu_printf("Intel ICH4 LPC: PIRQ%c has the IRQ of %d\n", 'A' + i, pic_irq & 0x0f);
 
             ich4->pic_levels = 0;
 
@@ -143,7 +142,7 @@ static void intel_ich4_pirq(ICH4State *ich4)
             qemu_set_irq(ich4->pic[pic_irq], !!(ich4->pic_levels & (((1ULL << 8ULL) - 1) << (pic_irq * 8ULL))));
         }
         else {
-            qemu_printf("Intel ICH4 LPC: PIRQ%c is handled by APIC or disabled (APIC: %d)\n", 'A' + i, 16 + i);
+//            qemu_printf("Intel ICH4 LPC: PIRQ%c is handled by APIC or disabled (APIC: %d)\n", 'A' + i, 16 + i);
 
             ich4->pic_levels = 0;
 
@@ -383,12 +382,35 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
 
 }
 
-static void ich4_reset(DeviceState *dev)
+static void intel_ich4_lpc_reset(DeviceState *s)
 {
-    ICH4State *d = ICH4_PCI_DEVICE(dev);
+    ICH4State *d = ICH4_PCI_DEVICE(s);
+    PCIDevice *dev = PCI_DEVICE(d);
+
+    dev->config[0x40] = 0x01;
+    dev->config[0x58] = 0x01;
+    dev->config[0x60] = 0x80;
+    dev->config[0x61] = 0x80;
+    dev->config[0x62] = 0x80;
+    dev->config[0x63] = 0x80;
+    dev->config[0x68] = 0x80;
+    dev->config[0x69] = 0x80;
+    dev->config[0x6a] = 0x80;
+    dev->config[0x6b] = 0x80;
+    dev->config[0xe3] = 0xff;
+    dev->config[0xe8] = 0x00;
+    dev->config[0xe9] = 0x33;
+    dev->config[0xea] = 0x22;
+    dev->config[0xeb] = 0x11;
+    dev->config[0xee] = 0x78;
+    dev->config[0xef] = 0x56;
 
     d->pic_levels = 0;
     d->rcr = 0;
+
+    intel_ich4_acpi(0, 0, 0, d->acpi);
+    intel_ich4_gpio(0, 0, 0);
+    intel_ich4_nvr_reset(d);
 }
 
 static int ich4_post_load(void *opaque, int version_id)
@@ -462,7 +484,6 @@ static void rcr_write(void *opaque, hwaddr addr, uint64_t val, unsigned len)
         return;
     }
     d->rcr = val & 2; /* keep System Reset type only */
-
 }
 
 static uint64_t rcr_read(void *opaque, hwaddr addr, unsigned len)
@@ -489,24 +510,6 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
 
     qemu_printf("Intel ICH4 LPC: I got realized!\n");
 
-    dev->config[0x40] = 0x01;
-    dev->config[0x58] = 0x01;
-    dev->config[0x60] = 0x80;
-    dev->config[0x61] = 0x80;
-    dev->config[0x62] = 0x80;
-    dev->config[0x63] = 0x80;
-    dev->config[0x68] = 0x80;
-    dev->config[0x69] = 0x80;
-    dev->config[0x6a] = 0x80;
-    dev->config[0x6b] = 0x80;
-    dev->config[0xe3] = 0xff;
-    dev->config[0xe8] = 0x00;
-    dev->config[0xe9] = 0x33;
-    dev->config[0xea] = 0x22;
-    dev->config[0xeb] = 0x11;
-    dev->config[0xee] = 0x78;
-    dev->config[0xef] = 0x56;
-
     /* Form the LPC Bus */
     qemu_printf("Intel ICH4 LPC: LPC bus ready\n");
     isa_bus = isa_bus_new(DEVICE(d), pci_address_space(dev), pci_address_space_io(dev), errp);
@@ -525,11 +528,9 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
     qemu_printf("Intel ICH4 LPC: DMA Controller is up\n");
 
     /* NVR */
+    qdev_prop_set_int32(DEVICE(&d->rtc), "base_year", 2000);
     if (!qdev_realize(DEVICE(&d->rtc), BUS(isa_bus), errp))
         return;
-    
-    intel_ich4_nvr_reset(d);
-
     qemu_printf("Intel ICH4 LPC: NVR has been sanitized\n");
 }
 
@@ -549,7 +550,7 @@ static void intel_ich4_lpc_class_init(ObjectClass *klass, void *data)
 
     k->config_write = intel_ich4_write_config;
     k->config_read = pci_default_read_config;
-    dc->reset       = ich4_reset;
+    dc->reset       = intel_ich4_lpc_reset;
     dc->desc        = "Intel ICH4 LPC Bridge";
     dc->vmsd        = &vmstate_ich4;
     dc->hotpluggable   = false;

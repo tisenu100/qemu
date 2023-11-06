@@ -18,6 +18,7 @@ typedef struct PMSMBus {
     uint8_t smb_data1;
     uint8_t smb_data[PM_SMBUS_MAX_MSG_SIZE];
     uint8_t smb_blkdata;
+    uint8_t smb_auxsts;
     uint8_t smb_auxctl;
     uint32_t smb_index;
 

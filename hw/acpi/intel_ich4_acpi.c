@@ -25,8 +25,8 @@
  */
 
 /*
-    Note: PIIX4 has an entire seperate PM device of it's own. Since ICH0 ACPI is handled by the LPC Device while SMBus has it's own PCI Controller.
-    We recycle the PIIX4 PM Controller for the SMBus while keeping the PM intact
+    Note: PIIX4 has an entire seperate PM device of it's own. Since ICH0 ACPI is handled by the LPC while SMBus has it's own PCI Controller.
+    We recycle the PIIX4 PM Controller for the SMBus while keeping the PM is linked to the LPC
 */
 
 #include "qemu/osdep.h"
@@ -63,13 +63,6 @@ struct pci_status {
     uint32_t down;
 };
 
-/* PM Timer. When it runs out provoke an SCI or SMI Instead */
-static void pm_tmr_timer(ACPIREGS *ar)
-{
-    Intel_ICH4_ACPI_State *s = container_of(ar, Intel_ICH4_ACPI_State, ar);
-    acpi_update_sci(&s->ar, s->irq);
-}
-
 /* Global SMI Trigger */
 static void intel_ich4_provoke_smi(Intel_ICH4_ACPI_State *s)
 {
@@ -79,14 +72,25 @@ static void intel_ich4_provoke_smi(Intel_ICH4_ACPI_State *s)
     }
 }
 
+/* PM Timer. When it times out provoke an SCI or SMI Instead */
+static void pm_tmr_timer(ACPIREGS *ar)
+{
+    Intel_ICH4_ACPI_State *s = container_of(ar, Intel_ICH4_ACPI_State, ar);
+
+    if((ar->pm1.evt.en & 1) && (ar->pm1.cnt.cnt & 1))
+        acpi_update_sci(&s->ar, s->irq);
+//    else if(ar->pm1.evt.en & 1)
+//        intel_ich4_provoke_smi(s);
+}
+
 /* APM Control */
 static void apm_ctrl_changed(uint32_t val, void *arg)
 {
     Intel_ICH4_ACPI_State *s = arg;
 
-    if(s->smi_w[1] & 0x20) { /* APMC SMI. If B3h is written provoke it */
+    if(s->smi_w[0] & 0x20) { /* APMC SMI. If B3h is written provoke it */
         qemu_printf("Intel ICH4 ACPI: APMC has requested an SMI\n");
-        s->smi_s[1] |= 0x20;
+        s->smi_s[0] |= 0x20;
         intel_ich4_provoke_smi(s);
     }
 }
@@ -157,7 +161,7 @@ static const VMStateDescription vmstate_gpe = {
 static uint64_t pm1_cnt_read(void *opaque, hwaddr addr, unsigned width)
 {
     ACPIREGS *ar = opaque;
-    return ar->pm1.cnt.cnt >> ((int)addr & 1) * 8;
+    return (ar->pm1.cnt.cnt >> ((int)addr & 1) * 8) & 0xff;
 }
 
 static void pm1_cnt_write(void *opaque, hwaddr addr, uint64_t val, unsigned width)
@@ -497,17 +501,20 @@ static void intel_ich4_acpi_realize(PCIDevice *dev, Error **errp)
     apm_init(dev, &s->apm, apm_ctrl_changed, s);
     qemu_printf("Intel ICH4 ACPI: APM\n");
 
+    /* Event Handler */
+    acpi_pm1_evt_init(&s->ar, pm_tmr_timer, &s->io);
+    qemu_printf("Intel ICH4 ACPI: ACPI PM Event Handler\n");
+
     /* Control */
     qemu_register_wakeup_notifier(&s->ar.wakeup);
     qemu_register_wakeup_support();
-//  ar->wakeup.notify = acpi_notify_wakeup;
+    s->ar.wakeup.notify = acpi_notify_wakeup;
     memory_region_init_io(&s->ar.pm1.cnt.io, memory_region_owner(&s->io), &pm1_cnt_ops, s, "acpi_pm1_cnt", 2);
     memory_region_add_subregion(&s->io, 0x04, &s->ar.pm1.cnt.io);
     qemu_printf("Intel ICH4 ACPI: ACPI PM Control\n");
 
     /* Timer */
     acpi_pm_tmr_init(&s->ar, pm_tmr_timer, &s->io);
-    acpi_pm1_evt_init(&s->ar, pm_tmr_timer, &s->io);
     qemu_printf("Intel ICH4 ACPI: ACPI Timer\n");
 
     /* General Purpose Events */
@@ -532,11 +539,9 @@ static void intel_ich4_acpi_realize(PCIDevice *dev, Error **errp)
 
 static Property intel_ich4_acpi_properties[] = {
     DEFINE_PROP_UINT32("smb_io_base", Intel_ICH4_ACPI_State, smb_io_base, 0),
-    DEFINE_PROP_UINT8(ACPI_PM_PROP_S3_DISABLED, Intel_ICH4_ACPI_State, disable_s3, 0),
-    DEFINE_PROP_UINT8(ACPI_PM_PROP_S4_DISABLED, Intel_ICH4_ACPI_State, disable_s4, 0),
     DEFINE_PROP_UINT8(ACPI_PM_PROP_S4_VAL, Intel_ICH4_ACPI_State, s4_val, 2),
-    DEFINE_PROP_BOOL("smm-compat", Intel_ICH4_ACPI_State, smm_compat, false),
-    DEFINE_PROP_BOOL("smm-enabled", Intel_ICH4_ACPI_State, smm_enabled, false),
+    DEFINE_PROP_BOOL("smm-compat", Intel_ICH4_ACPI_State, smm_compat, true),
+    DEFINE_PROP_BOOL("smm-enabled", Intel_ICH4_ACPI_State, smm_enabled, true),
     DEFINE_PROP_BOOL("x-not-migrate-acpi-index", Intel_ICH4_ACPI_State, not_migrate_acpi_index, false),
     DEFINE_PROP_END_OF_LIST(),
 };

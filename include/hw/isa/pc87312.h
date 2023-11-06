@@ -25,16 +25,15 @@
 #ifndef QEMU_PC87312_H
 #define QEMU_PC87312_H
 
-#include "hw/isa/superio.h"
+#include "hw/isa/isa.h"
 #include "qom/object.h"
-
 
 #define TYPE_PC87312 "pc87312"
 OBJECT_DECLARE_SIMPLE_TYPE(PC87312State, PC87312)
 
 struct PC87312State {
     /*< private >*/
-    ISASuperIODevice parent_dev;
+    ISADevice parent_dev;
     /*< public >*/
 
     uint16_t iobase;
