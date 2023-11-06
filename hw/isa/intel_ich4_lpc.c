@@ -531,6 +531,9 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
     qdev_prop_set_int32(DEVICE(&d->rtc), "base_year", 2000);
     if (!qdev_realize(DEVICE(&d->rtc), BUS(isa_bus), errp))
         return;
+    uint32_t irq = object_property_get_uint(OBJECT(&lpc->rtc), "irq", &error_fatal);
+    isa_connect_gpio_out(ISA_DEVICE(&lpc->rtc), 0, irq);
+
     qemu_printf("Intel ICH4 LPC: NVR has been sanitized\n");
 }
 
