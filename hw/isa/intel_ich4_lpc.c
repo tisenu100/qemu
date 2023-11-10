@@ -94,7 +94,7 @@ int intel_ich4_irq_table(int irq)
         case 0x0f:
             return irq;
         
-        default: /*Invalid IRQ */
+        default: /* Invalid IRQ */
             return 0;
     }
 }
@@ -130,11 +130,10 @@ static void intel_ich4_pirq(ICH4State *ich4)
         int enabled = !(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x80) && (pic_irq != 0);
         uint64_t mask; /* Qemu magic */
 
+        ich4->pic_levels = 0;
+
         if(!!enabled) {
 //            qemu_printf("Intel ICH4 LPC: PIRQ%c has the IRQ of %d\n", 'A' + i, pic_irq & 0x0f);
-
-            ich4->pic_levels = 0;
-
             mask = 1ULL << ((pic_irq * 8ULL) + i);
             ich4->pic_levels &= ~mask;
             ich4->pic_levels |= mask * !!level;
@@ -143,9 +142,6 @@ static void intel_ich4_pirq(ICH4State *ich4)
         }
         else {
 //            qemu_printf("Intel ICH4 LPC: PIRQ%c is handled by APIC or disabled (APIC: %d)\n", 'A' + i, 16 + i);
-
-            ich4->pic_levels = 0;
-
             mask = 1ULL << (((16 + i) * 8ULL) + i);
             ich4->pic_levels &= ~mask;
             ich4->pic_levels |= mask * !!level;
@@ -523,6 +519,9 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
     memory_region_add_subregion_overlap(pci_address_space_io(dev), 0xcf9, &d->rcr_mem, 1);
     qemu_printf("Intel ICH4 LPC: PIIX Compatible reset control is mounted at port 0xcf9h\n");
 
+    /* Register ISA IRQs */
+    isa_bus_register_input_irqs(isa_bus, d->isa_irqs_in);
+
     /* Prepare the DMA controller */
     i8257_dma_init(isa_bus, 0);
     qemu_printf("Intel ICH4 LPC: DMA Controller is up\n");
@@ -531,8 +530,8 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
     qdev_prop_set_int32(DEVICE(&d->rtc), "base_year", 2000);
     if (!qdev_realize(DEVICE(&d->rtc), BUS(isa_bus), errp))
         return;
-    uint32_t irq = object_property_get_uint(OBJECT(&lpc->rtc), "irq", &error_fatal);
-    isa_connect_gpio_out(ISA_DEVICE(&lpc->rtc), 0, irq);
+    uint32_t irq = object_property_get_uint(OBJECT(&d->rtc), "irq", &error_fatal);
+    isa_connect_gpio_out(ISA_DEVICE(&d->rtc), 0, irq);
 
     qemu_printf("Intel ICH4 LPC: NVR has been sanitized\n");
 }
@@ -551,15 +550,16 @@ static void intel_ich4_lpc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
 
+    k->vendor_id    = PCI_VENDOR_ID_INTEL;
+    k->device_id    = PCI_DEVICE_ID_INTEL_ICH4_LPC;
+    k->class_id     = PCI_CLASS_BRIDGE_ISA;
     k->config_write = intel_ich4_write_config;
     k->config_read = pci_default_read_config;
+    k->revision = 0x02;
     dc->reset       = intel_ich4_lpc_reset;
     dc->desc        = "Intel ICH4 LPC Bridge";
     dc->vmsd        = &vmstate_ich4;
     dc->hotpluggable   = false;
-    k->vendor_id    = PCI_VENDOR_ID_INTEL;
-    k->device_id    = PCI_DEVICE_ID_INTEL_ICH4_LPC;
-    k->class_id     = PCI_CLASS_BRIDGE_ISA;
     dc->user_creatable = false;
 }
 

@@ -112,5 +112,6 @@ SerialMM *serial_mm_init(MemoryRegion *address_space,
 
 #define TYPE_ISA_SERIAL "isa-serial"
 void serial_hds_isa_init(ISABus *bus, int from, int to);
+SerialState serial_isa_get_state(ISADevice *dev);
 
 #endif

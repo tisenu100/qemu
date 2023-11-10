@@ -1,5 +1,5 @@
 /*
- * Intel® 845GE/845PE Chipset
+ * Intel 845GE/845PE Chipset
  *
  * Copyright (c) 2006 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -93,21 +93,26 @@ static void intel_845pe_smram(Intel_845PE_PCI_State *d)
     */
 
     memory_region_transaction_begin();
+    if(pd->config[0x9d] & 0x08) {
+        qemu_printf("Intel 845PE: SMRAM Region is enabled\n");
+        if((pd->config[0x9d] & 0x40) && !(pd->config[0x9d] & 0x20)) {
+            qemu_printf("Intel 845PE: SMRAM Region is open. Ignore PCI access\n");
+            memory_region_set_enabled(&d->smram_region, false);
+            memory_region_set_enabled(&d->high_smram_region, false);
+        }
+        else {
+            memory_region_set_enabled(&d->smram_region, true);
+            memory_region_set_enabled(&d->high_smram_region, true);
+        }
 
-    if(pd->config[0x9d] & 0x40) {
-        memory_region_set_enabled(&d->smram_region, pd->config[0x9e] & 0x80);
-        memory_region_set_enabled(&d->high_smram_region, pd->config[0x9e] & 0x80);
-    } else {
-        memory_region_set_enabled(&d->smram_region, true);
-        memory_region_set_enabled(&d->high_smram_region, false);
-    }
-
-    if(pd->config[0x9d] & 0x10) {
-        memory_region_set_enabled(&d->low_smram, !(pd->config[0x9e] & 0x80));
+        memory_region_set_enabled(&d->low_smram, true);
         memory_region_set_enabled(&d->high_smram, pd->config[0x9e] & 0x80);
     } else {
+        qemu_printf("Intel 845PE: SMRAM Region is disabled\n");
         memory_region_set_enabled(&d->low_smram, false);
         memory_region_set_enabled(&d->high_smram, false);
+        memory_region_set_enabled(&d->smram_region, true);
+        memory_region_set_enabled(&d->high_smram_region, true);
     }
 
     memory_region_transaction_commit();
@@ -117,7 +122,6 @@ static void intel_845pe_pam(Intel_845PE_PCI_State *d)
 {
     PCIDevice *pd = PCI_DEVICE(d);
 
-    /* The exact same code from 440FX */
     memory_region_transaction_begin();
 
     for (int i = 0; i < ARRAY_SIZE(d->pam_regions); i++)
@@ -186,12 +190,7 @@ static void intel_845pe_write_config(PCIDevice *dev, uint32_t address, uint32_t 
             break;
 
             case 0x9d:
-                if(!!(new_val & 0x10)) { /* Lock the SMRAM Register */
-                    ro_only = 1;
-                    new_val |= 0x10;
-                } else {
-                    new_val = new_val & 0x7f;
-                }
+                new_val = new_val & 0x7f;
             break;
 
             case 0x9e:
@@ -271,7 +270,7 @@ static void intel_845pe_write_config(PCIDevice *dev, uint32_t address, uint32_t 
             pci_default_write_config(dev, address, val, len);
             dev->config[address + i] = new_val;
 
-            if(((address + i) < 0x90) && ((address + i) > 0x96)) /* Don't log PAM Writes */
+            if(((address + i) < 0x90) || ((address + i) > 0x96)) /* Don't log PAM Writes */
                 qemu_printf("Intel 845PE MCH: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
 
@@ -490,30 +489,30 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     qemu_printf("Intel 845PE MCH: PCI Memory Mapping initialization complete!\n");
 
     /* If the SMRAM region is disabled then allow it to be seen and accessed */
-    memory_region_init_alias(&f->smram_region, OBJECT(d), "smram-region", s->pci_address_space, 0xa0000, 0x20000);
+    memory_region_init_alias(&f->smram_region, OBJECT(f), "smram-region", s->pci_address_space, 0xa0000, 0x20000);
     memory_region_add_subregion_overlap(s->system_memory, 0xa0000, &f->smram_region, 1);
     memory_region_set_enabled(&f->smram_region, true);
-    memory_region_init_alias(&f->high_smram_region, OBJECT(d), "high-smram-region", s->ram_memory, 0xfeda0000, 0x20000);
+    memory_region_init_alias(&f->high_smram_region, OBJECT(f), "high-smram-region", s->ram_memory, 0xfeda0000, 0x20000);
     memory_region_add_subregion_overlap(s->system_memory, 0xfeda0000, &f->high_smram_region, 1);
     memory_region_set_enabled(&f->high_smram_region, true);
     qemu_printf("Intel 845PE MCH: SMRAM Regions are up\n");
 
     /* SMRAM as seen by SMM CPUs */
-    memory_region_init(&f->smram, OBJECT(d), "smram", 4 * GiB);
+    memory_region_init(&f->smram, OBJECT(f), "smram", 4 * GiB);
     memory_region_set_enabled(&f->smram, true);
 
     /* CPU SMM 30000-4FFFF section */
-    memory_region_init_alias(&f->cpu_smram, OBJECT(d), "cpu-smm", s->ram_memory, 0x30000, 128 * KiB);
+    memory_region_init_alias(&f->cpu_smram, OBJECT(f), "cpu-smm", s->ram_memory, 0x30000, 128 * KiB);
     memory_region_set_enabled(&f->cpu_smram, true);
     memory_region_add_subregion(&f->smram, 0x30000, &f->cpu_smram);
 
     /* Low SMRAM A0000-BFFFF section */
-    memory_region_init_alias(&f->low_smram, OBJECT(d), "smram-low", s->ram_memory, 0xa0000, 0x20000);
+    memory_region_init_alias(&f->low_smram, OBJECT(f), "smram-low", s->ram_memory, 0xa0000, 0x20000);
     memory_region_set_enabled(&f->low_smram, true);
     memory_region_add_subregion(&f->smram, 0xa0000, &f->low_smram);
 
     /* High SMRAM FEDA0000-FEDBFFFF mirror */
-    memory_region_init_alias(&f->high_smram, OBJECT(d), "smram-high", &f->low_smram, 0xfeda0000, 0x20000);
+    memory_region_init_alias(&f->high_smram, OBJECT(f), "smram-high", s->ram_memory, 0xfeda0000, 0x20000);
     memory_region_set_enabled(&f->high_smram, true);
     memory_region_add_subregion(&f->smram, 0xfeda0000, &f->high_smram);
 
@@ -521,9 +520,9 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     qemu_printf("Intel 845PE MCH: SMRAM Regions are set\n");
 
     /* Start the PAM. This is just Shadow RAM. Qemu has it's own PAM implementation. We just follow behind as Intel 845PE is no different. */
-    init_pam(&f->pam_regions[0], OBJECT(d), s->ram_memory, s->system_memory, s->pci_address_space, PAM_BIOS_BASE, PAM_BIOS_SIZE);
+    init_pam(&f->pam_regions[0], OBJECT(f), s->ram_memory, s->system_memory, s->pci_address_space, PAM_BIOS_BASE, PAM_BIOS_SIZE);
     for (unsigned i = 0; i < ARRAY_SIZE(f->pam_regions) - 1; ++i) {
-        init_pam(&f->pam_regions[i + 1], OBJECT(d), s->ram_memory,
+        init_pam(&f->pam_regions[i + 1], OBJECT(f), s->ram_memory,
                  s->system_memory, s->pci_address_space,
                  PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE, PAM_EXPAN_SIZE);
         qemu_printf("Intel 845PE MCH: PAM Region 0x%05x is being prepared\n", PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE);

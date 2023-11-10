@@ -32,6 +32,7 @@ struct ICH4State {
     uint64_t pic_levels;
 
     qemu_irq *pic;
+    qemu_irq isa_irqs_in[ISA_NUM_IRQS];
 
     /* This member isn't used. Just for save/load compatibility */
     int32_t pci_irq_levels_vmstate[ICH4_NUM_PIRQS];

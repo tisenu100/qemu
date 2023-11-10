@@ -319,8 +319,10 @@ static void intel_ich4_ide_class_init(ObjectClass *klass, void *data)
     k->vendor_id = PCI_VENDOR_ID_INTEL;
     k->device_id = PCI_DEVICE_ID_INTEL_ICH4_IDE;
     k->class_id = PCI_CLASS_STORAGE_IDE;
+    k->revision = 0x02;
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->hotpluggable = false;
+    dc->user_creatable = false;
 }
 
 static const TypeInfo intel_ich4_ide_info = {

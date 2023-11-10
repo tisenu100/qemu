@@ -6,6 +6,8 @@
 #include "qom/object.h"
 #include "exec/memory.h"
 #include "hw/block/fdc-internal.h"
+#include "hw/char/parallel.h"
+#include "hw/char/serial.h"
 
 #define TYPE_WINBOND_W83627HF "winbond-w83627hf"
 OBJECT_DECLARE_SIMPLE_TYPE(WinbondState, WINBOND_W83627HF)
@@ -24,11 +26,24 @@ typedef struct WinbondState {
     uint8_t ldn_regs[12][0xff]; /* LDN Registers. Refer to the Winbond W83627HF datasheet for more */
 
     /* Floppy Disk Controller */
+    ISADevice *fd;
     uint16_t fdc_io_base;
     FDCtrl fdc;
+
+    /* LPT */
+    ISADevice *parallel;
+    uint16_t lpt_io_base;
+    ParallelState lpt;
+
+    /* UARTs */
+    ISADevice *serial[2];
+    uint16_t uart_io_base[2];
+    SerialState uart[2];
 } WinbondState;
 
 /* Links Qemu's FDC to the Winbond */
 void winbond_link_fdc(WinbondState *sio, FDCtrl fdc);
+void winbond_link_lpt(WinbondState *sio, ParallelState lpt);
+void winbond_link_uart(WinbondState *sio, SerialState uart, int i);
 
 #endif /* WINBOND_H */

@@ -376,11 +376,8 @@ static void kbd_write_command(void *opaque, hwaddr addr,
     case KBD_CCMD_READ_INPORT:
         kbd_queue(s, 0x80, 0);
         break;
-    case KBD_AMI_READ_MODE:
+    case KBD_AMI_READ_MODE: /* Reads Bit 0 of Port 60h if it's an AT or PS2 Keyboard. On Qemu we are doing PS2 so we return 0x01 */
         kbd_queue(s, 0x01, 0);
-    break;
-    case KBD_AMI_WRITE_MODE:
-        s->mode |= 0x01;
     break;
     case KBD_CCMD_READ_OUTPORT:
         kbd_queue(s, s->outport, 0);

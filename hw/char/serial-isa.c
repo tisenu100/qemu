@@ -52,6 +52,13 @@ static const int isa_serial_irq[MAX_ISA_SERIAL_PORTS] = {
     4, 3, 4, 3
 };
 
+SerialState serial_isa_get_state(ISADevice *dev)
+{
+    ISASerialState *d = ISA_SERIAL(dev);
+
+    return d->state;
+}
+
 static void serial_isa_realizefn(DeviceState *dev, Error **errp)
 {
     static int index;

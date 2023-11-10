@@ -1,6 +1,8 @@
 /*
- * QEMU SMBus EEPROM API
+ * Intel 845PE AGP Bridge
  *
+ * Copyright (c) 2023 Tiseno100
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -20,18 +22,19 @@
  * THE SOFTWARE.
  */
 
-#ifndef HW_SMBUS_EEPROM_H
-#define HW_SMBUS_EEPROM_H
+#ifndef HW_INTEL_845PE_AGP_H
+#define HW_INTEL_845PE_AGP_H
 
-#include "exec/cpu-common.h"
-#include "hw/i2c/i2c.h"
+#include "hw/pci/pci_bridge.h"
+#include "qom/object.h"
 
-void smbus_eeprom_init_one(I2CBus *bus, uint8_t address, uint8_t *eeprom_buf);
-void smbus_eeprom_init(I2CBus *bus, int nb_eeprom,
-                       const uint8_t *eeprom_spd, int size);
 
-enum sdram_type { SDR = 0x4, DDR = 0x7, DDR2 = 0x8 };
-uint8_t *spd_data_generate(enum sdram_type type, ram_addr_t size);
-uint8_t *spd_data_generate_real(int size);
+struct Intel_845PE_AGP_State {
+    /*< private >*/
+    PCIBridge parent_obj;
+};
+
+#define TYPE_INTEL_845PE_AGP "intel-845pe-agp"
+OBJECT_DECLARE_SIMPLE_TYPE(Intel_845PE_AGP_State, INTEL_845PE_AGP)
 
 #endif

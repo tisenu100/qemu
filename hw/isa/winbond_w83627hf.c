@@ -28,9 +28,11 @@
 #include "trace.h"
 
 #include "qemu/qemu-print.h"
-#include "hw/isa/superio.h"
+#include "hw/isa/isa.h"
 #include "hw/block/fdc.h"
 #include "hw/block/fdc-internal.h"
+#include "hw/char/parallel.h"
+#include "hw/char/serial.h"
 #include "hw/isa/winbond_w83627hf.h"
 
 static void winbond_reset_actual(WinbondState *d); /* Allocate here so we can reset per CR00 Bit 1 request */
@@ -59,6 +61,7 @@ static void winbond_ldn_update(int val, WinbondState *d)
         qemu_printf("Winbond W83627HF: LDN was updated to %d\n", d->ldn);
 }
 
+/* FDC */
 void winbond_link_fdc(WinbondState *sio, FDCtrl fdc)
 {
     sio->fdc = fdc;
@@ -68,43 +71,111 @@ void winbond_link_fdc(WinbondState *sio, FDCtrl fdc)
 static void winbond_remap_fdc(WinbondState *s)
 {
     s->fdc_io_base = (s->ldn_regs[0][0x60] << 8) | s->ldn_regs[0][0x61];
-    FDCtrl fdc = s->fdc;
+    bool enabled = (s->ldn_regs[0][0x30] & 1) && (s->fdc_io_base != 0);
 
     memory_region_transaction_begin();
-    memory_region_set_enabled(&fdc.iomem, s->ldn_regs[0][0x30] & 1);
-    memory_region_set_address(&fdc.iomem, s->fdc_io_base);
+    memory_region_set_enabled(&s->fdc.iomem, enabled);
+    memory_region_set_address(&s->fdc.iomem, s->fdc_io_base);
     memory_region_transaction_commit();
 
-    if(!(s->ldn_regs[0][0x30] & 1))
+    if(!enabled)
         qemu_printf("Winbond W83627HF: Floppy Disk Controller has been disabled!\n");
     else
         qemu_printf("Winbond W83627HF: Floppy Disk Controller address has been updated to 0x%04x\n", s->fdc_io_base);
 }
 
-static void winbond_remap_rw(WinbondState *s)
+static void winbond_remap_fdc_irq(WinbondState *s)
 {
-//    FDCtrl *fdc = s->fdc;
+    bool enabled = (s->ldn_regs[0][0x30] & 1) && (s->fdc_io_base != 0);
+    int irq = s->ldn_regs[0][0x70] & 0x0f;
 
-//    fdc->ro = !!(d->ldn_regs[0][0xf1] & 0x02);
-
-    if(s->ldn_regs[0][0xf2] & 2)
-        qemu_printf("Winbond W83627HF: Floppy Disk Controller is enforced read only!\n");
-    else
-        qemu_printf("Winbond W83627HF: Floppy Disk Controller is writable\n");
-
+    if((irq != 0) & enabled) {
+        qemu_printf("Winbond W83627HF: FDC IRQ has been updated to %d!\n", irq);
+        s->fdc.irq = isa_get_irq(s->fd, irq);
+    }
 }
 
-static void winbond_fdc_dma(WinbondState *s)
+static void winbond_remap_fdc_dma(WinbondState *s)
 {
-//    FDCtrl fdc = s->fdc;
-
     if(s->ldn_regs[0][0x74] < 4) {
-//        fdc.dma_chann = s->ldn_regs[0][0x74];
+        s->fdc.dma_chann = s->ldn_regs[0][0x74];
         qemu_printf("Winbond W83627HF: Floppy Disk Controller DMA has been updated to %d\n", s->ldn_regs[0][0x74]);
     }
     else {
-//        fdc.dma_chann = -1;
+        s->fdc.dma_chann = -1;
         qemu_printf("Winbond W83627HF: Floppy Disk Controller DMA has been disabled or invalidated\n");
+    }
+}
+
+/* LPT */
+void winbond_link_lpt(WinbondState *sio, ParallelState lpt)
+{
+    qemu_printf("Winbond W83627HF: LPT has been linked!\n");
+    sio->lpt = lpt;
+}
+
+static void winbond_remap_lpt(WinbondState *s)
+{
+    s->lpt_io_base = (s->ldn_regs[1][0x60] << 8) | s->ldn_regs[1][0x61];
+    bool enabled = (s->ldn_regs[1][0x30] & 1) && (s->lpt_io_base != 0);
+
+    memory_region_transaction_begin();
+    memory_region_set_enabled(&s->lpt.iomem, enabled);
+    memory_region_set_address(&s->lpt.iomem, s->lpt_io_base);
+    memory_region_transaction_commit();
+
+    if(!enabled)
+        qemu_printf("Winbond W83627HF: LPT has been disabled!\n");
+    else
+        qemu_printf("Winbond W83627HF: LPT address has been updated to 0x%04x\n", s->lpt_io_base);
+}
+
+static void winbond_remap_lpt_irq(WinbondState *s)
+{
+    bool enabled = (s->ldn_regs[1][0x30] & 1) && (s->lpt_io_base != 0);
+    int irq = s->ldn_regs[1][0x70] & 0x0f;
+
+    if((irq != 0) & enabled) {
+        qemu_printf("Winbond W83627HF: LPT IRQ has been updated to %d!\n", irq);
+        s->lpt.irq = isa_get_irq(s->parallel, irq);
+    }
+}
+
+/* UART */
+void winbond_link_uart(WinbondState *sio, SerialState uart, int i)
+{
+    sio->uart[i] = uart;
+    qemu_printf("Winbond W83627HF: UART %c has been linked!\n", 'A' + i);
+}
+
+static void winbond_remap_uart(WinbondState *s)
+{
+    int number = s->ldn & 1;
+
+    s->uart_io_base[number] = (s->ldn_regs[2 + number][0x60] << 8) | s->ldn_regs[2 + number][0x61];
+    bool enabled = (s->ldn_regs[2 + number][0x30] & 1) && (s->uart_io_base[number] != 0);
+
+    memory_region_transaction_begin();
+    memory_region_set_enabled(&s->uart[number].io, enabled);
+    memory_region_set_address(&s->uart[number].io, s->uart_io_base[number]);
+    memory_region_transaction_commit();
+
+    if(!enabled)
+        qemu_printf("Winbond W83627HF: UART %c has been disabled!\n", 'A' + number);
+    else
+        qemu_printf("Winbond W83627HF: UART %c address has been updated to 0x%04x\n", 'A' + number, s->uart_io_base[number]);
+}
+
+
+static void winbond_remap_uart_irq(WinbondState *s)
+{
+    int number = s->ldn & 1;
+    bool enabled = (s->ldn_regs[2 + number][0x30] & 1) && (s->uart_io_base[number] != 0);
+    int irq = s->ldn_regs[2 + number][0x70] & 0x0f;
+
+    if((irq != 0) & enabled) {
+        qemu_printf("Winbond W83627HF: UART %c IRQ has been updated to %d!\n", 'A' + number, irq);
+        s->uart[number].irq = isa_get_irq(s->serial[number], irq);
     }
 }
 
@@ -117,11 +188,9 @@ static void winbond_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned siz
 
         if(val == 0x87) {
             d->extended_function_mode = 1;
-            qemu_printf("Winbond W83627HF: Extended Function Mode was enabled\n");
         }
-        else if(val == 0xaa){
+        else if(val == 0xaa) {
             d->extended_function_mode = 0;
-            qemu_printf("Winbond W83627HF: Extended Function Mode was disabled\n");
         }
     } else { /* Data */
         uint8_t new_val = val;
@@ -177,7 +246,7 @@ static void winbond_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned siz
         if(d->index >= 0x30){ /* Program the logical devices */
             switch(d->ldn){
                 case 0: /* FDC */
-                    switch(d->index){
+                    switch(d->index) {
                         case 0x30:
                             d->ldn_regs[d->ldn][d->index] = new_val & 0x01;
                             winbond_remap_fdc(d);
@@ -191,11 +260,12 @@ static void winbond_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned siz
 
                         case 0x70:
                             d->ldn_regs[d->ldn][d->index] = new_val & 0x0f;
+                            winbond_remap_fdc_irq(d);
                         break;
 
                         case 0x74:
                             d->ldn_regs[d->ldn][d->index] = new_val & 0x07;
-                            winbond_fdc_dma(d);
+                            winbond_remap_fdc_dma(d);
                         break;
 
                         case 0xf4:
@@ -205,7 +275,6 @@ static void winbond_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned siz
                         case 0xf0:
                         case 0xf1:
                             d->ldn_regs[d->ldn][d->index] = new_val;
-                            winbond_remap_rw(d);
                         break;
 
                         case 0xf2:
@@ -213,6 +282,71 @@ static void winbond_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned siz
                             d->ldn_regs[d->ldn][d->index] = new_val;
                         break;
                     }
+                break;
+
+                case 1: /* LPT */
+                    switch(d->index) {
+                        case 0x30:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x01;
+                            winbond_remap_lpt(d);
+                        break;
+
+                        case 0x60:
+                        case 0x61:
+                            d->ldn_regs[d->ldn][d->index] = new_val;
+                            winbond_remap_lpt(d);
+                        break;
+
+                        case 0x70:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x0f;
+                            winbond_remap_lpt_irq(d);
+                        break;
+
+                        case 0x74:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x07;
+                        break;
+
+                        case 0xf0:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x7f;
+                        break;
+                    }
+                break;
+
+                case 2: /* UART A */
+                case 3: /* UART B. As of now we don't program it as it causes a segfault for some reason. */
+                    switch(d->index) {
+                        case 0x30:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x01;
+                                if(!(d->ldn & 1))
+                                    winbond_remap_uart(d);
+                        break;
+
+                        case 0x60:
+                        case 0x61:
+                            d->ldn_regs[d->ldn][d->index] = new_val;
+                                if(!(d->ldn & 1))
+                                    winbond_remap_uart(d);
+                        break;
+
+                        case 0x70:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x0f;
+                                if(!(d->ldn & 1))
+                                    winbond_remap_uart_irq(d);
+                        break;
+
+                        case 0xf0:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x0f;
+                        break;
+
+                        case 0xf1:
+                            d->ldn_regs[d->ldn][d->index] = new_val & 0x7f;
+                        break;
+                    }
+                break;
+
+                default: /* Rest of the devices we don't handle. Like uhh, the gameport ig. */
+                    if(d->ldn < 12) /* Write whatever here */
+                        d->ldn_regs[d->ldn][d->index] = new_val;
                 break;
             }
         }
@@ -254,6 +388,8 @@ const VMStateDescription vmstate_winbond = {
         VMSTATE_UINT8_ARRAY(regs, WinbondState, 0x30),
         VMSTATE_UINT8_2DARRAY(ldn_regs, WinbondState, 12, 0xff),
         VMSTATE_UINT16(fdc_io_base, WinbondState),
+        VMSTATE_UINT16(lpt_io_base, WinbondState),
+        VMSTATE_UINT16_ARRAY(uart_io_base, WinbondState, 2),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -277,16 +413,40 @@ static void winbond_reset_actual(WinbondState *d)
 
     /* Floppy */
     d->ldn_regs[0][0x30] = 0x01;
-    d->ldn_regs[0][0x60] = 0x30;
+    d->ldn_regs[0][0x60] = 0x03;
     d->ldn_regs[0][0x61] = 0xf0;
     d->ldn_regs[0][0x70] = 0x06;
     d->ldn_regs[0][0x74] = 0x04;
     d->ldn_regs[0][0xf0] = 0x0e;
     d->ldn_regs[0][0xf2] = 0xff;
 
+    d->ldn_regs[2][0x30] = 0x01;
+    d->ldn_regs[2][0x60] = 0x03;
+    d->ldn_regs[2][0x61] = 0xf8;
+    d->ldn_regs[2][0x70] = 0x04;
+
+/*
+    d->ldn_regs[3][0x30] = 0x01;
+    d->ldn_regs[3][0x60] = 0x02;
+    d->ldn_regs[3][0x61] = 0xf8;
+    d->ldn_regs[3][0x70] = 0x03;
+*/
+
     winbond_remap_fdc(d);
-    winbond_remap_rw(d);
-    winbond_fdc_dma(d);
+    winbond_remap_fdc_irq(d);
+    winbond_remap_fdc_dma(d);
+
+    winbond_remap_lpt(d);
+    winbond_remap_lpt_irq(d);
+
+    winbond_remap_uart(d);
+    winbond_remap_uart_irq(d);
+/*
+    d->ldn = !d->ldn;
+    winbond_remap_uart(d);
+    winbond_remap_uart_irq(d);
+    d->ldn = !d->ldn;
+*/
 }
 
 static void winbond_reset(DeviceState *d)

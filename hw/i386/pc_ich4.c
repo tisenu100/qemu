@@ -1,5 +1,5 @@
 /*
- * QEMU ICH4 Based System Emulation
+ * Intel ICH4 Baseboard
  *
  * Copyright (c) 2003-2004 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -23,6 +23,16 @@
  * THE SOFTWARE.
  */
 
+/*
+
+    Our Components are:
+    
+    Northbridge: Intel 845PE Brookdale
+    Southbridge: Intel ICH4 Desktop
+    Super I/O:   Winbond W83627HF
+
+*/
+
 #include "qemu/osdep.h"
 #include CONFIG_DEVICES
 
@@ -34,6 +44,7 @@
 #include "hw/i386/apic.h"
 #include "hw/display/ramfb.h"
 #include "hw/pci/pci.h"
+#include "hw/pci/pci_bridge.h"
 #include "hw/pci/pci_ids.h"
 #include "hw/usb.h"
 #include "hw/irq.h"
@@ -56,11 +67,16 @@
 
 #include "hw/i386/pc.h"
 #include "hw/pci-host/intel_845pe.h"
+#include "hw/pci-bridge/intel_845pe_agp.h"
 #include "hw/southbridge/intel_ich4_lpc.h"
+#include "hw/pci-bridge/intel_ich4_hub.h"
 #include "hw/rtc/intel_ich4_nvr.h"
 #include "hw/isa/winbond_w83627hf.h"
 #include "hw/block/fdc.h"
 #include "hw/block/fdc-internal.h"
+#include "hw/char/parallel.h"
+#include "hw/char/parallel-isa.h"
+#include "hw/char/serial.h"
 #include "hw/ide/isa.h"
 #include "hw/ide/pci.h"
 #include "hw/ide/piix.h"
@@ -76,7 +92,8 @@ static int pc_pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
 {
     int slot_addend;
     slot_addend = PCI_SLOT(pci_dev->devfn) - 1;
-    return (pci_intx + slot_addend) & 7;
+    qemu_printf("PCI INTX: 0x%01x\n", (pci_intx + slot_addend) & 3);
+    return (pci_intx + slot_addend) & 3;
 }
 
 static void pc_init1(MachineState *machine)
@@ -130,7 +147,6 @@ static void pc_init1(MachineState *machine)
 
     /* Initialize the PCI bus */
     qemu_printf("PC: Loading PCI bus...\n");
-    PCIBus *pci_bus;
     Object *phb = OBJECT(qdev_new(TYPE_INTEL_845PE_HOST_BRIDGE)); /* The PCI Object */
 
     pci_memory = g_new(MemoryRegion, 1);
@@ -157,11 +173,15 @@ static void pc_init1(MachineState *machine)
 
     sysbus_realize_and_unref(SYS_BUS_DEVICE(phb), &error_fatal);
 
-    pci_bus = PCI_BUS(qdev_get_child_bus(DEVICE(phb), "pci.0")); /* Create Bus 0 */
+    PCIBus *pci_bus = PCI_BUS(qdev_get_child_bus(DEVICE(phb), "pci.0")); /* Create Bus 0 */
     pci_bus_map_irqs(pci_bus, pc_pci_slot_get_pirq); /* Assign PIRQ's to the slots */
     pcms->bus = pci_bus;
 
     hole64_size = object_property_get_uint(phb, PCI_HOST_PROP_PCI_HOLE64_SIZE, &error_abort); /* PCI 64-bit Hole Size */
+
+    PCIDevice *intel_845pe_agp = pci_create_simple(pci_bus, PCI_DEVFN(0x01, 0), TYPE_INTEL_845PE_AGP);
+    PCIBridge *agp_bridge = PCI_BRIDGE(intel_845pe_agp);
+    pci_bridge_map_irq(agp_bridge, "pci.1", pc_pci_slot_get_pirq);
 
     /* Qemu's Guest Info Picker */
     pc_guest_info_init(pcms);
@@ -207,6 +227,11 @@ static void pc_init1(MachineState *machine)
         pcms->vmport = ON_OFF_AUTO_ON;
     }
 
+    /* Initialize the Hub bridge */
+    PCIDevice *intel_ich4_hub = pci_create_simple(pci_bus, PCI_DEVFN(0x30, 0), TYPE_INTEL_ICH4_HUB);
+    PCIBridge *hub_bridge = PCI_BRIDGE(intel_ich4_hub);
+    pci_bridge_map_irq(hub_bridge, "pci.2", pc_pci_slot_get_pirq);
+
     /* Now that we got the basics up. Let's load our basic components */
     qemu_printf("PC: Loading Glue Components...\n");
     pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, false, 0x08); /* VLSI Logic */
@@ -226,6 +251,7 @@ static void pc_init1(MachineState *machine)
 
     /* Form the FDC and then bind it to the Winbond to program it */
     ISADevice *fdc = isa_new(TYPE_ISA_FDC);
+    winbond_mount->fd = fdc;
     DriveInfo *fd[MAX_FD];
 
     for (int i = 0; i < MAX_FD; i++) {
@@ -237,6 +263,36 @@ static void pc_init1(MachineState *machine)
     FDCtrl fdd = isa_fdc_get_controller(fdc);
 
     winbond_link_fdc(winbond_mount, fdd); /* Mount the FDC to the Winbond */
+
+    /* Form the LPT and then bind it to the Winbond to program it */
+    ISADevice *lpt = isa_new(TYPE_ISA_PARALLEL);
+    DeviceState *lpt_dev = DEVICE(lpt);
+    qdev_prop_set_uint32(lpt_dev, "index", 0);
+    qdev_prop_set_chr(lpt_dev, "chardev", parallel_hds[0]);
+
+    ParallelState parallel_state = parallel_get_state(lpt); /* Unlike Serial & FDC we don't really need to mount the state from inside the code. What a gimmick :b */
+
+    isa_realize_and_unref(lpt, isa_bus, &error_fatal);
+    winbond_mount->parallel = lpt;
+    winbond_link_lpt(winbond_mount, parallel_state); /* Mount the LPT to the Winbond */
+
+    /* Form the UARTs and then bind them to the Winbond to program them */
+    ISADevice *uart[2];
+    DeviceState *uart_dev[2];
+    SerialState uart_state[2];
+
+    for(int i = 0; i < 1; i++){ /* Two NSC 16550 Compatible Serial Handlers */
+        uart[i] = isa_new(TYPE_ISA_SERIAL);
+        uart_dev[i] = DEVICE(uart[i]);
+        qdev_prop_set_uint32(uart_dev[i], "index", i);
+        qdev_prop_set_chr(uart_dev[i], "chardev", serial_hd(i));
+        isa_realize_and_unref(uart[i], isa_bus, &error_fatal);
+
+        winbond_mount->serial[i] = uart[i];
+
+        uart_state[i] = serial_isa_get_state(uart[i]);
+        winbond_link_uart(winbond_mount, uart_state[i], i); /* Mount the UARTs to the Winbond */
+    }
 
     /* IDE Compatible Drives */
     qemu_printf("PC: Loading IDE...\n");
@@ -261,7 +317,7 @@ static void pc_init1(MachineState *machine)
     /* Create a Intel ICH4 Compatible ACPI device */
     Intel_ICH4_ACPI_State *acpi = INTEL_ICH4_ACPI(intel_ich4_acpi);
 
-    /* Checks if SMM exists?? We do a Pentium 4 machine which is mandatory. */
+    /* Checks if SMM exists. We do a Pentium 4 machine which makes SMM presence mandatory. */
     qdev_prop_set_bit(DEVICE(intel_ich4_acpi), "smm-enabled", kvm_enabled() ? kvm_has_smm() : 1);
 
     /* Probably to provoke an initialization */
@@ -279,17 +335,64 @@ static void pc_init1(MachineState *machine)
     pcms->smbus = I2C_BUS(qdev_get_child_bus(DEVICE(intel_ich4_acpi), "i2c"));
 
     /* Intel 845PE utilizes DDR Memory */
-    uint8_t *spd[2];
+    uint8_t *spd[4];
+    int modules;
 
-//    spd[0] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 0 1 */
-//    spd[1] = spd_data_generate(DDR, ((int)machine->ram_size / 2)); /* Rows 2 3 */
+    /* Initialize the Serial Presence Detect data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
+    if((machine->ram_size >> 20) > 1024)
+        qemu_printf("PC: WARNING! Placing memory beyond 1GB. Make sure the target motherboard supports more than 2 slots else you may face unexpected behavior!\n");
 
-    spd[0] = spd_data_generate_real();
-    spd[1] = spd_data_generate_real();
+    switch(machine->ram_size >> 20) {
+        case 2048: /* Generate 4 512MB Memory Modules */
+            modules = 4;
+            spd[0] = spd_data_generate_real(512);
+            spd[1] = spd_data_generate_real(512);
+            spd[2] = spd_data_generate_real(512);
+            spd[3] = spd_data_generate_real(512);
+        break;
 
-    /* Initialize the SMBus SPD data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
-    smbus_eeprom_init_one(pcms->smbus, 0x50, spd[0]);       
-    smbus_eeprom_init_one(pcms->smbus, 0x51, spd[1]);    
+        case 1536: /* Generate 3 512MB Memory Modules */
+            modules = 4;
+            spd[0] = spd_data_generate_real(512);
+            spd[1] = spd_data_generate_real(512);
+            spd[2] = spd_data_generate_real(512);
+        break;
+
+        case 1024: /* Generate 2 512MB Memory Modules */
+            modules = 2;
+            spd[0] = spd_data_generate_real(512);
+            spd[1] = spd_data_generate_real(512);
+        break;
+
+        case 512: /* Generate 2 256MB Memory Modules */
+            modules = 2;
+            spd[0] = spd_data_generate_real(256);
+            spd[1] = spd_data_generate_real(256);
+        break;
+
+        case 256: /* Generate 2 128MB Memory Modules */
+            modules = 2;
+            spd[0] = spd_data_generate_real(128);
+            spd[1] = spd_data_generate_real(128);
+        break;
+
+        case 128: /* Generate 1 128MB Memory Module */
+            modules = 1;
+            spd[0] = spd_data_generate_real(128);
+        break;
+
+        default:
+            modules = 0;
+            qemu_printf("PC: We don't have an SPD profile for such a RAM size yet. Fallback on Qemu's SPD\n");
+            
+        break;
+    }
+
+    if(modules == 0)
+        spd_data_generate(DDR, machine->ram_size);
+    else
+        for(int i = 0; i < modules; i++)
+            smbus_eeprom_init_one(pcms->smbus, 0x50 + i, spd[i]);  
 
     /* Link ACPIState with the LPC so we can remap it's I/O base */
     intel_ich4_link_acpi(lpc, acpi);

@@ -27,4 +27,5 @@ struct ISAParallelState {
     ParallelState state;
 };
 
+ParallelState parallel_get_state(ISADevice *dev);
 #endif /* HW_PARALLEL_ISA_H */

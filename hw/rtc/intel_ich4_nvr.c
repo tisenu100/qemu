@@ -24,7 +24,7 @@
  */
 
 /*
-    It's a hack of the MC146818 RTC Controller Qemu uses but with ""fixed"" time handling and extended bank support
+    It's a hack of the MC146818 RTC Controller with extended bank support
 */
 
 #include "qemu/osdep.h"
@@ -468,7 +468,7 @@ static void cmos_ioport_write(void *opaque, hwaddr addr,
         case RTC_DAY_OF_MONTH:
         case RTC_MONTH:
         case RTC_YEAR:
-//            s->cmos_data[s->cmos_index] = data;
+            s->cmos_data[s->cmos_index] = data;
             if (rtc_running(s)) {
                 rtc_set_time(s);
                 check_update_timer(s);
@@ -884,7 +884,7 @@ static void rtc_get_date(Object *obj, struct tm *current_tm, Error **errp)
     rtc_get_time(s, current_tm);
 }
 
-static void rtc_realizefn(DeviceState *dev, Error **errp)
+static void intel_ich4_rtc_realizefn(DeviceState *dev, Error **errp)
 {
     ISADevice *isadev = ISA_DEVICE(dev);
     Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(dev);
@@ -1009,13 +1009,14 @@ static void rtc_reset_hold(Object *obj)
     qemu_irq_lower(s->irq);
 }
 
-static void rtc_class_initfn(ObjectClass *klass, void *data)
+static void intel_ich4_nvr_initfn(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
 
-    dc->realize = rtc_realizefn;
+    dc->realize = intel_ich4_rtc_realizefn;
     dc->vmsd = &vmstate_rtc;
+    dc->user_creatable = false;
     rc->phases.enter = rtc_reset_enter;
     rc->phases.hold = rtc_reset_hold;
     device_class_set_props(dc, intel_ich4_nvr_properties);
@@ -1026,7 +1027,7 @@ static const TypeInfo intel_ich4_nvr_info = {
     .name          = TYPE_INTEL_ICH4_NVR,
     .parent        = TYPE_ISA_DEVICE,
     .instance_size = sizeof(Intel_ICH4_NVR_State),
-    .class_init    = rtc_class_initfn,
+    .class_init    = intel_ich4_nvr_initfn,
 };
 
 static void intel_ich4_nvr_register_types(void)

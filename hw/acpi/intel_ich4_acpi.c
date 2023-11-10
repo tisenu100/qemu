@@ -116,7 +116,7 @@ static void gpe_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned width)
     /* We speculate something is expected for the BIOS to program GPE so we provoke an SCI immediately */
     acpi_update_sci(&s->ar, s->irq);
 
-    qemu_printf("Intel ICH4 ACPI: GPE was updated 0x%04x\n", *s->ar.gpe.en);
+    qemu_printf("Intel ICH4 ACPI: GPE was updated 0x%04x%04x\n", *s->ar.gpe.sts, *s->ar.gpe.en);
 }
 
 static void intel_ich4_send_gpe(AcpiDeviceIf *adev, AcpiEventStatusBits ev)
@@ -132,7 +132,7 @@ static const MemoryRegionOps gpe_ops = {
     .valid.min_access_size = 1,
     .valid.max_access_size = 4,
     .impl.min_access_size = 1,
-    .impl.max_access_size = 1,
+    .impl.max_access_size = 4,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
@@ -563,6 +563,7 @@ static void piix4_pm_class_init(ObjectClass *klass, void *data)
     k->vendor_id = PCI_VENDOR_ID_INTEL;
     k->device_id = PCI_DEVICE_ID_INTEL_ICH4_SMBUS;
     k->class_id = PCI_CLASS_SERIAL_SMBUS;
+    k->revision = 0x02;
 
     /* Properties */
     device_class_set_props(dc, intel_ich4_acpi_properties);

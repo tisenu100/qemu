@@ -17,6 +17,13 @@
 #include "hw/char/parallel.h"
 #include "qapi/error.h"
 
+ParallelState parallel_get_state(ISADevice *dev)
+{
+    ISAParallelState *d = ISA_PARALLEL(dev);
+
+    return d->state;
+}
+
 static void parallel_init(ISABus *bus, int index, Chardev *chr)
 {
     DeviceState *dev;

@@ -76,7 +76,9 @@
     { "qemu64-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },\
     { "athlon-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },
 
-GlobalProperty pc_compat_8_1[] = {};
+GlobalProperty pc_compat_8_1[] = { /* Intel Pentium 4 doesn't have L3 Cache Support */
+    { "netburst", "l3-cache", "off" },
+};
 const size_t pc_compat_8_1_len = G_N_ELEMENTS(pc_compat_8_1);
 
 GlobalProperty pc_compat_8_0[] = {
@@ -1154,10 +1156,11 @@ static void pc_superio_init(ISABus *isa_bus, bool create_fdctrl,
     qemu_irq *a20_line;
     ISADevice *fdc, *i8042, *port92, *vmmouse;
 
+    if (create_fdctrl) {
     serial_hds_isa_init(isa_bus, 0, MAX_ISA_SERIAL_PORTS);
     parallel_hds_isa_init(isa_bus, MAX_PARALLEL_PORTS);
 
-    if (create_fdctrl) {
+
         for (i = 0; i < MAX_FD; i++) {
             fd[i] = drive_get(IF_FLOPPY, 0, i);
             create_fdctrl |= !!fd[i];
