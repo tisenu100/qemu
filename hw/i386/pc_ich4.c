@@ -145,6 +145,9 @@ static void pc_init1(MachineState *machine)
         kvmclock_create(pcmc->kvmclock_create_always);
     }
 
+    /* Disable Qemu's FW_CFG */
+    x86ms->fw_cfg = 0;
+
     /* Initialize the PCI bus */
     qemu_printf("PC: Loading PCI bus...\n");
     Object *phb = OBJECT(qdev_new(TYPE_INTEL_845PE_HOST_BRIDGE)); /* The PCI Object */

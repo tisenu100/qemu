@@ -1812,8 +1812,8 @@ x86_cpu_def_get_versions(const X86CPUDefinition *def)
     return def->versions ?: default_version_list;
 }
 
-static const CPUCaches netburst_cache_info = { /* Intel Pentium 4 Cache */
-    .l1d_cache = &(CPUCacheInfo) {
+//static const CPUCaches netburst_cache_info = { /* Intel Pentium 4 Cache */
+/*    .l1d_cache = &(CPUCacheInfo) {
         .type = DATA_CACHE,
         .level = 1,
         .size = 8 * KiB,
@@ -1837,7 +1837,7 @@ static const CPUCaches netburst_cache_info = { /* Intel Pentium 4 Cache */
         .associativity = 8,
     },
 };
-
+*/
 static const CPUCaches epyc_cache_info = {
     .l1d_cache = &(CPUCacheInfo) {
         .type = DATA_CACHE,
@@ -2487,7 +2487,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .features[FEAT_1_ECX] = 0x00000009, /* 0x0000441d */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
         .xlevel = 0x80000004,
-        .cache_info = &netburst_cache_info,
+//        .cache_info = &netburst_cache_info,
         .model_id = "Intel(R) Pentium(R) 4 CPU 3.00GHz",
     },
     {

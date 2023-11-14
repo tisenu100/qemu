@@ -15,6 +15,7 @@
 #include "qemu/timer.h"
 #include "hw/isa/isa.h"
 #include "qom/object.h"
+#include "sysemu/block-backend.h"
 
 #define TYPE_INTEL_ICH4_NVR "intel_ich4_nvr"
 OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH4_NVR_State, INTEL_ICH4_NVR)
@@ -48,6 +49,10 @@ struct Intel_ICH4_NVR_State {
     Notifier clock_reset_notifier;
     LostTickPolicy lost_tick_policy;
     Notifier suspend_notifier;
+
+    /* Bank Storage */
+    DriveInfo *dinfo;
+    BlockBackend *blk;
 
     /* Upper Bank Handling */
     bool u128e;

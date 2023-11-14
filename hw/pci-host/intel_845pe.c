@@ -1,5 +1,5 @@
 /*
- * Intel 845GE/845PE Chipset
+ * Intel 845GE/845PE Memory Controller Hub
  *
  * Copyright (c) 2006 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -459,7 +459,6 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     PCIHostState *phb = PCI_HOST_BRIDGE(dev);
 
     qemu_printf("Intel 845PE MCH: PCI bus was formed\n");
-    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     PCIBus *pci_bus = pci_root_bus_new(dev, NULL, s->pci_address_space, s->io_memory, 0, TYPE_PCI_BUS);
     phb->bus = pci_bus;
 
@@ -467,6 +466,7 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
     Intel_845PE_PCI_State *f = INTEL_845PE_PCI_DEVICE(d);
 
     /* Intel 845PE speaks on registers Cf8h & Cfch */
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     memory_region_add_subregion(s->io_memory, 0xcf8, &phb->conf_mem);
     sysbus_init_ioports(sbd, 0xcf8, 4);
 

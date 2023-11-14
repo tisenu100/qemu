@@ -68,6 +68,7 @@ typedef struct PCMachineState {
 #define PC_MACHINE_I8042            "i8042"
 #define PC_MACHINE_MAX_FW_SIZE      "max-fw-size"
 #define PC_MACHINE_SMBIOS_EP        "smbios-entry-point-type"
+#define PC_MACHINE_NVR_BLK           "nvr_blk"
 
 /**
  * PCMachineClass:

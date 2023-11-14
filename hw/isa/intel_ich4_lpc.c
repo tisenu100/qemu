@@ -240,6 +240,26 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                 new_val = new_val & 0xfc;
             break;
 
+            case 0xa0:
+                new_val = new_val & 0x33;
+            break;
+
+            case 0xa2:
+                new_val &= new_val & 0x7b;
+            break;
+
+            case 0xa4:
+                new_val = new_val & 0xc8;
+            break;
+
+            case 0xa8:
+                new_val = new_val & 0x3f;
+            break;
+
+            case 0xc0:
+                new_val = new_val & 0xf0;
+            break;
+
             case 0xd0:
                 new_val = new_val & 0xc7;
             break;
@@ -308,6 +328,20 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
             case 0x59:
             case 0x64:
             case 0x90:
+            case 0xb8:
+            case 0xb9:
+            case 0xba:
+            case 0xbb:
+            case 0xc4:
+            case 0xc5:
+            case 0xc6:
+            case 0xc7:
+            case 0xc8:
+            case 0xc9:
+            case 0xca:
+            case 0xcb:
+            case 0xcc:
+            case 0xcd:
             case 0xe3:
             case 0xe5:
             case 0xe6:
@@ -326,7 +360,7 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
         }
 
         if(!ro_only) {
-            pci_default_write_config(dev, address, val, len);
+            pci_default_write_config(dev, address, new_val, len);
             dev->config[address + i] = new_val;
             qemu_printf("Intel ICH4 LPC: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
@@ -393,6 +427,7 @@ static void intel_ich4_lpc_reset(DeviceState *s)
     dev->config[0x69] = 0x80;
     dev->config[0x6a] = 0x80;
     dev->config[0x6b] = 0x80;
+    dev->config[0xa8] = 0x0d;
     dev->config[0xe3] = 0xff;
     dev->config[0xe8] = 0x00;
     dev->config[0xe9] = 0x33;

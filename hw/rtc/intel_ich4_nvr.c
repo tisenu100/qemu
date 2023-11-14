@@ -38,6 +38,8 @@
 #include "hw/qdev-properties-system.h"
 #include "qemu/timer.h"
 #include "sysemu/sysemu.h"
+#include "sysemu/blockdev.h"
+#include "sysemu/block-backend.h"
 #include "sysemu/replay.h"
 #include "sysemu/reset.h"
 #include "sysemu/runstate.h"
@@ -48,21 +50,6 @@
 #include "qapi/error.h"
 #include "qapi/qapi-events-misc.h"
 #include "qapi/visitor.h"
-
-//#define DEBUG_CMOS
-//#define DEBUG_COALESCED
-
-#ifdef DEBUG_CMOS
-# define CMOS_DPRINTF(format, ...)      printf(format, ## __VA_ARGS__)
-#else
-# define CMOS_DPRINTF(format, ...)      do { } while (0)
-#endif
-
-#ifdef DEBUG_COALESCED
-# define DPRINTF_C(format, ...)      printf(format, ## __VA_ARGS__)
-#else
-# define DPRINTF_C(format, ...)      do { } while (0)
-#endif
 
 #define SEC_PER_MIN     60
 #define MIN_PER_HOUR    60
@@ -130,11 +117,8 @@ static void rtc_coalesced_timer(void *opaque)
 
     if (s->irq_coalesced != 0) {
         s->cmos_data[RTC_REG_C] |= 0xc0;
-        DPRINTF_C("cmos: injecting from timer\n");
         if (rtc_policy_slew_deliver_irq(s)) {
             s->irq_coalesced--;
-            DPRINTF_C("cmos: coalesced irqs decreased to %d\n",
-                      s->irq_coalesced);
         }
     }
 
@@ -212,9 +196,6 @@ static void periodic_timer_update(Intel_ICH4_NVR_State *s, int64_t current_time,
         lost_clock %= s->period;
         if (old_irq_coalesced != s->irq_coalesced ||
             old_period != s->period) {
-            DPRINTF_C("cmos: coalesced irqs scaled from %d to %d, "
-                      "period scaled from %d to %d\n", old_irq_coalesced,
-                      s->irq_coalesced, old_period, s->period);
             rtc_coalesced_timer_update(s);
         }
     } else {
@@ -246,8 +227,6 @@ static void rtc_periodic_timer(void *opaque)
             if (!rtc_policy_slew_deliver_irq(s)) {
                 s->irq_coalesced++;
                 rtc_coalesced_timer_update(s);
-                DPRINTF_C("cmos: coalesced irqs increased to %d\n",
-                          s->irq_coalesced);
             }
         } else
             qemu_irq_raise(s->irq);
@@ -448,8 +427,6 @@ static void cmos_ioport_write(void *opaque, hwaddr addr,
     } else if ((addr & 1) && ((addr % 4) > 1) && s->u128e && !((s->cmos_index >= 0x38) && (s->cmos_index <= 0x3f) && s->u128lock)) { /* Intel ICH4 allows us to lock that range */
         s->cmos_data[s->cmos_index + 0x80] = data;
     } else {
-        CMOS_DPRINTF("cmos: write index=0x%02x val=0x%02" PRIx64 "\n",
-                     s->cmos_index, data);
         switch(s->cmos_index) {
         case RTC_SECONDS_ALARM:
         case RTC_MINUTES_ALARM:
@@ -726,11 +703,8 @@ static uint64_t cmos_ioport_read(void *opaque, hwaddr addr,
                     s->irq_reinject_on_ack_count < RTC_REINJECT_ON_ACK_COUNT) {
                 s->irq_reinject_on_ack_count++;
                 s->cmos_data[RTC_REG_C] |= REG_C_IRQF | REG_C_PF;
-                DPRINTF_C("cmos: injecting on ack\n");
                 if (rtc_policy_slew_deliver_irq(s)) {
                     s->irq_coalesced--;
-                    DPRINTF_C("cmos: coalesced irqs decreased to %d\n",
-                              s->irq_coalesced);
                 }
             }
             break;
@@ -738,8 +712,6 @@ static uint64_t cmos_ioport_read(void *opaque, hwaddr addr,
             ret = s->cmos_data[s->cmos_index];
             break;
         }
-        CMOS_DPRINTF("cmos: read index=0x%02x val=0x%02x\n",
-                     s->cmos_index, ret);
     }
 
     return ret;
@@ -889,6 +861,14 @@ static void intel_ich4_rtc_realizefn(DeviceState *dev, Error **errp)
     ISADevice *isadev = ISA_DEVICE(dev);
     Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(dev);
 
+    /* CMOS Storage */
+    DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
+    if(dinfo)
+        qdev_prop_set_drive_err(dev, "drive", blk_by_legacy_dinfo(dinfo), &error_fatal);
+
+    blk_set_perm(s->blk, BLK_PERM_CONSISTENT_READ | BLK_PERM_WRITE, BLK_PERM_ALL, &error_fatal);
+    blk_pread(s->blk, 0, 256, s->cmos_data, 0);
+
     s->cmos_data[RTC_REG_A] = 0x26;
     s->cmos_data[RTC_REG_B] = 0x02;
     s->cmos_data[RTC_REG_C] = 0x00;
@@ -946,6 +926,7 @@ static void intel_ich4_rtc_realizefn(DeviceState *dev, Error **errp)
     object_property_add_tm(OBJECT(s), "date", rtc_get_date);
 
     qdev_init_gpio_out(dev, &s->irq, 1);
+
     QLIST_INSERT_HEAD(&rtc_devices, s, link);
 }
 
@@ -976,14 +957,17 @@ static Property intel_ich4_nvr_properties[] = {
     DEFINE_PROP_INT32("base_year", Intel_ICH4_NVR_State, base_year, 1900),
     DEFINE_PROP_UINT16("iobase", Intel_ICH4_NVR_State, io_base, 0x70),
     DEFINE_PROP_UINT8("irq", Intel_ICH4_NVR_State, isairq, RTC_ISA_IRQ),
-    DEFINE_PROP_LOSTTICKPOLICY("lost_tick_policy", Intel_ICH4_NVR_State,
-                               lost_tick_policy, LOST_TICK_POLICY_DISCARD),
+    DEFINE_PROP_LOSTTICKPOLICY("lost_tick_policy", Intel_ICH4_NVR_State, lost_tick_policy, LOST_TICK_POLICY_DISCARD),
+    DEFINE_PROP_DRIVE("drive", Intel_ICH4_NVR_State, blk),
     DEFINE_PROP_END_OF_LIST(),
 };
 
 static void rtc_reset_enter(Object *obj, ResetType type)
 {
     Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(obj);
+
+    /* Write CMOS data */
+    blk_pwrite(s->blk, 0, 256, s->cmos_data, 0);
 
     /* Reason: VM do suspend self will set 0xfe
      * Reset any values other than 0xfe(Guest suspend case) */
