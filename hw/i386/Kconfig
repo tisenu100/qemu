@@ -91,7 +91,7 @@ config INTEL_ICH4
     select PC_PCI
     select PC_ACPI
     select INTEL_ICH4
-    select DIMM  
+    select DIMM
 
 config ISAPC
     bool
