@@ -668,11 +668,11 @@ suppressing it.  More information on the file format can be found here:
 
 https://github.com/google/sanitizers/wiki/ThreadSanitizerSuppressions
 
-tests/tsan/blacklist.tsan - Has TSan warnings we wish to disable
+tests/tsan/ignore.tsan - Has TSan warnings we wish to disable
 at compile time for test or debug.
 Add flags to configure to enable:
 
-"--extra-cflags=-fsanitize-blacklist=<src path>/tests/tsan/blacklist.tsan"
+"--extra-cflags=-fsanitize-blacklist=<src path>/tests/tsan/ignore.tsan"
 
 More information on the file format can be found here under "Blacklist Format":
 
@@ -1016,7 +1016,7 @@ class.  Here's a simple usage example:
           self.vm.launch()
           res = self.vm.cmd('human-monitor-command',
                             command_line='info version')
-          self.assertRegexpMatches(res, r'^(\d+\.\d+\.\d)')
+          self.assertRegex(res, r'^(\d+\.\d+\.\d)')
 
 To execute your test, run:
 
@@ -1077,7 +1077,7 @@ and hypothetical example follows:
               'human-monitor-command',
               command_line='info version')
 
-          self.assertEquals(first_res, second_res, third_res)
+          self.assertEqual(first_res, second_res, third_res)
 
 At test "tear down", ``avocado_qemu.Test`` handles all the QEMUMachines
 shutdown.

@@ -292,7 +292,7 @@ int bdrv_snapshot_goto(BlockDriverState *bs,
         /* .bdrv_open() will re-attach it */
         bdrv_graph_wrlock(NULL);
         bdrv_unref_child(bs, fallback);
-        bdrv_graph_wrunlock();
+        bdrv_graph_wrunlock(NULL);
 
         ret = bdrv_snapshot_goto(fallback_bs, snapshot_id, errp);
         open_ret = drv->bdrv_open(bs, options, bs->open_flags, &local_err);
@@ -629,7 +629,6 @@ int bdrv_all_goto_snapshot(const char *name,
     while (iterbdrvs) {
         BlockDriverState *bs = iterbdrvs->data;
         AioContext *ctx = bdrv_get_aio_context(bs);
-        int ret = 0;
         bool all_snapshots_includes_bs;
 
         aio_context_acquire(ctx);
@@ -637,9 +636,8 @@ int bdrv_all_goto_snapshot(const char *name,
         all_snapshots_includes_bs = bdrv_all_snapshots_includes_bs(bs);
         bdrv_graph_rdunlock_main_loop();
 
-        if (devices || all_snapshots_includes_bs) {
-            ret = bdrv_snapshot_goto(bs, name, errp);
-        }
+        ret = (devices || all_snapshots_includes_bs) ?
+              bdrv_snapshot_goto(bs, name, errp) : 0;
         aio_context_release(ctx);
         if (ret < 0) {
             bdrv_graph_rdlock_main_loop();
