@@ -92,8 +92,7 @@ static int pc_pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
 {
     int slot_addend;
     slot_addend = PCI_SLOT(pci_dev->devfn) - 1;
-    qemu_printf("PCI INTX: 0x%01x\n", (pci_intx + slot_addend) & 3);
-    return (pci_intx + slot_addend) & 3;
+    return (pci_intx + slot_addend) & 7;
 }
 
 static void pc_init1(MachineState *machine)
@@ -113,7 +112,7 @@ static void pc_init1(MachineState *machine)
     qemu_printf("PC: Loading Memory...\n");
     ram_memory = machine->ram;
     if (!pcms->max_ram_below_4g) {
-        pcms->max_ram_below_4g = 0xe0000000; /* default: 3.5G */
+        pcms->max_ram_below_4g = 4 * GiB;
     }
     lowmem = pcms->max_ram_below_4g;
     if (machine->ram_size >= pcms->max_ram_below_4g) {
@@ -135,8 +134,8 @@ static void pc_init1(MachineState *machine)
         x86ms->below_4g_mem_size = machine->ram_size;
     }
 
+    /* Get the CPU up */
     qemu_printf("PC: Loading TCG/KVM...\n");
-    pc_machine_init_sgx_epc(pcms);
     x86_cpus_init(x86ms, pcmc->default_cpu_version);
 
     /* KVM */
@@ -168,9 +167,9 @@ static void pc_init1(MachineState *machine)
 
     object_property_set_link(phb, PCI_HOST_PROP_IO_MEM, OBJECT(system_io), &error_fatal); /* I/O Memory Range */
 
-    object_property_set_uint(phb, PCI_HOST_BELOW_4G_MEM_SIZE, x86ms->below_4g_mem_size, &error_fatal); /* Memory */
+    object_property_set_uint(phb, PCI_HOST_BELOW_4G_MEM_SIZE, x86ms->below_4g_mem_size, &error_fatal); /* Memory below 4GB range */
 
-    object_property_set_uint(phb, PCI_HOST_ABOVE_4G_MEM_SIZE, x86ms->above_4g_mem_size, &error_fatal); /* Extended Memory */
+    object_property_set_uint(phb, PCI_HOST_ABOVE_4G_MEM_SIZE, x86ms->above_4g_mem_size, &error_fatal); /* Extended above 4GB range */
 
     object_property_set_str(phb, INTEL_845PE_HOST_PROP_PCI_TYPE, TYPE_INTEL_845PE_PCI_DEVICE, &error_fatal); /* Set the Component type of the Intel 845PE */
 
@@ -237,6 +236,7 @@ static void pc_init1(MachineState *machine)
 
     /* Now that we got the basics up. Let's load our basic components */
     qemu_printf("PC: Loading Glue Components...\n");
+    pcms->hpet_enabled = true; /* Intel ICH4 comes with HPET */
     pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, false, 0x08); /* VLSI Logic */
     object_property_add_link(OBJECT(machine), "rtc_state", TYPE_ISA_DEVICE, (Object **)&x86ms->rtc, object_property_allow_set_link, OBJ_PROP_LINK_STRONG); /* NVR */
     object_property_set_link(OBJECT(machine), "rtc_state", OBJECT(rtc_state), &error_abort);
@@ -244,7 +244,7 @@ static void pc_init1(MachineState *machine)
 
     /*
         Winbond W83827HF LPC Super I/O. Used by most Pentium 4 boards.
-        Some used the ITE 87xx series of LPC Super I/Os too.
+        Some used the ITE 87xx series of LPC Super I/Os too!
         OEMs tended to use the SMSC FDC87xxxx.
     */
     qemu_printf("PC: Loading Winbond W83627HF...");
@@ -355,7 +355,7 @@ static void pc_init1(MachineState *machine)
         break;
 
         case 1536: /* Generate 3 512MB Memory Modules */
-            modules = 4;
+            modules = 3;
             spd[0] = spd_data_generate_real(512);
             spd[1] = spd_data_generate_real(512);
             spd[2] = spd_data_generate_real(512);

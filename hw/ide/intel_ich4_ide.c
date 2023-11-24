@@ -188,7 +188,7 @@ static void intel_ich4_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
             break;
 
             case 0x07:
-                new_val &= new_val & 0x28;
+                new_val &= ~(new_val & 0x28);
                 new_val |= 0x02;
             break;
 

@@ -1811,15 +1811,17 @@ x86_cpu_def_get_versions(const X86CPUDefinition *def)
 
     return def->versions ?: default_version_list;
 }
-
-//static const CPUCaches netburst_cache_info = { /* Intel Pentium 4 Cache */
-/*    .l1d_cache = &(CPUCacheInfo) {
+/*
+static const CPUCaches netburst_cache_info = {
+    .l1d_cache = &(CPUCacheInfo) {
         .type = DATA_CACHE,
         .level = 1,
-        .size = 8 * KiB,
+        .size = 16 * KiB,
         .line_size = 64,
         .associativity = 8,
         .self_init = 1,
+        .partitions = 1,
+        .sets = 32,
     },
     .l1i_cache = &(CPUCacheInfo) {
         .type = INSTRUCTION_CACHE,
@@ -1828,6 +1830,8 @@ x86_cpu_def_get_versions(const X86CPUDefinition *def)
         .line_size = 64,
         .associativity = 4,
         .self_init = 1,
+        .partitions = 1,
+        .sets = 48,
     },
     .l2_cache = &(CPUCacheInfo) {
         .type = UNIFIED_CACHE,
@@ -1835,6 +1839,17 @@ x86_cpu_def_get_versions(const X86CPUDefinition *def)
         .size = 1 * MiB,
         .line_size = 64,
         .associativity = 8,
+        .partitions = 1,
+        .sets = 256,
+    },
+    .l3_cache = &(CPUCacheInfo) {
+        .type = UNIFIED_CACHE,
+        .level = 1,
+        .size = 1 * MiB,
+        .line_size = 64,
+        .associativity = 8,
+        .partitions = 1,
+        .sets = 256,
     },
 };
 */
@@ -2481,14 +2496,14 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .name = "netburst", /* Intel Pentium 4 */
         .level = 2,
         .vendor = CPUID_VENDOR_INTEL,
-        .family = 14, /* 15 */
+        .family = 15,
         .model = 2,
         .stepping = 9,
-        .features[FEAT_1_ECX] = 0x00000009, /* 0x0000441d */
+        .features[FEAT_1_ECX] = 0x00000000, /* 0x0000441d */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
         .xlevel = 0x80000004,
 //        .cache_info = &netburst_cache_info,
-        .model_id = "Intel(R) Pentium(R) 4 CPU 3.00GHz",
+        .model_id = "Intel(R) Pentium(R) 4 CPU 3.40GHz",
     },
     {
         .name = "athlon",

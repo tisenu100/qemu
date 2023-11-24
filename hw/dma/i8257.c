@@ -485,7 +485,7 @@ static const MemoryRegionOps channel_io_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
     .impl = {
         .min_access_size = 1,
-        .max_access_size = 4,
+        .max_access_size = 1,
     },
 };
 
@@ -509,7 +509,7 @@ static const MemoryRegionOps cont_io_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
     .impl = {
         .min_access_size = 1,
-        .max_access_size = 4,
+        .max_access_size = 1,
     },
 };
 

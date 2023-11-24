@@ -122,7 +122,7 @@ static void intel_ich4_pirq(ICH4State *ich4)
     PCIBus *bus = pci_get_bus(&ich4->dev);
     PCIDevice *dev = &ich4->dev;
 
-    qemu_printf("Intel ICH4 LPC: We provoked in PIRQ update!\n");
+//    qemu_printf("Intel ICH4 LPC: We provoked in PIRQ update!\n");
 
     for(int i = 0; i < 8; i++){
         int level = pci_bus_get_irq_level(bus, i); /* PIRQ Level */
@@ -233,7 +233,7 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
             break;
 
             case 0x8a:
-                new_val &= 0x06;
+                new_val &= ~(new_val & 0x06);
             break;
 
             case 0x91:
@@ -245,7 +245,7 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
             break;
 
             case 0xa2:
-                new_val &= new_val & 0x7b;
+                new_val &= ~(new_val & 0x7b);
             break;
 
             case 0xa4:
@@ -277,51 +277,51 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
             break;
 
             case 0xd4:
-                new_val &= new_val & 0x02;
+                new_val = new_val & 0x02;
             break;
 
             case 0xd5:
-                new_val &= new_val & 0x3f;
+                new_val = new_val & 0x3f;
             break;
 
             case 0xd8:
-                new_val &= new_val & 0x1c;
+                new_val = new_val & 0x1c;
             break;
 
             case 0xe0:
-                new_val &= new_val & 0x77;
+                new_val = new_val & 0x77;
             break;
 
             case 0xe1:
-                new_val &= new_val & 0x13;
+                new_val = new_val & 0x13;
             break;
 
             case 0xe2:
-                new_val &= new_val & 0x3b;
+                new_val = new_val & 0x3b;
             break;
 
             case 0xe4:
-                new_val &= new_val & 0x81;
+                new_val = new_val & 0x81;
             break;
 
             case 0xe7:
-                new_val &= new_val & 0x3f;
+                new_val = new_val & 0x3f;
             break;
 
             case 0xec:
-                new_val &= new_val & 0xf1;
+                new_val = new_val & 0xf1;
             break;
 
             case 0xf0:
-                new_val &= new_val & 0x0f;
+                new_val = new_val & 0x0f;
             break;
 
             case 0xf2:
-                new_val &= new_val & 0x6b;
+                new_val = new_val & 0x6b;
             break;
 
             case 0xf3:
-                new_val &= new_val & 0xc7;
+                new_val = new_val & 0xc7;
             break;
 
             case 0x41:
@@ -411,6 +411,14 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
     }
 
 }
+
+/*
+static uint32_t intel_ich4_read_config(PCIDevice *dev, uint32_t address, int len)
+{
+    qemu_printf("Intel ICH4 LPC: dev->regs[0x%02x] (%x)\n", (int)address, (int)dev->config[address]);
+    return pci_default_read_config(dev, address, len);
+}
+*/
 
 static void intel_ich4_lpc_reset(DeviceState *s)
 {
@@ -514,7 +522,7 @@ static void rcr_write(void *opaque, hwaddr addr, uint64_t val, unsigned len)
         qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
         return;
     }
-    d->rcr = val & 2; /* keep System Reset type only */
+    d->rcr = val & 2; /* Keep System Reset type only */
 }
 
 static uint64_t rcr_read(void *opaque, hwaddr addr, unsigned len)

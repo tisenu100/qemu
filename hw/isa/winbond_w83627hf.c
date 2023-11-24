@@ -118,12 +118,12 @@ static void winbond_remap_lpt(WinbondState *s)
 {
     s->lpt_io_base = (s->ldn_regs[1][0x60] << 8) | s->ldn_regs[1][0x61];
     bool enabled = (s->ldn_regs[1][0x30] & 1) && (s->lpt_io_base != 0);
-
+/*
     memory_region_transaction_begin();
     memory_region_set_enabled(&s->lpt.iomem, enabled);
     memory_region_set_address(&s->lpt.iomem, s->lpt_io_base);
     memory_region_transaction_commit();
-
+*/
     if(!enabled)
         qemu_printf("Winbond W83627HF: LPT has been disabled!\n");
     else
@@ -154,12 +154,12 @@ static void winbond_remap_uart(WinbondState *s)
 
     s->uart_io_base[number] = (s->ldn_regs[2 + number][0x60] << 8) | s->ldn_regs[2 + number][0x61];
     bool enabled = (s->ldn_regs[2 + number][0x30] & 1) && (s->uart_io_base[number] != 0);
-
+/*
     memory_region_transaction_begin();
     memory_region_set_enabled(&s->uart[number].io, enabled);
     memory_region_set_address(&s->uart[number].io, s->uart_io_base[number]);
     memory_region_transaction_commit();
-
+*/
     if(!enabled)
         qemu_printf("Winbond W83627HF: UART %c has been disabled!\n", 'A' + number);
     else

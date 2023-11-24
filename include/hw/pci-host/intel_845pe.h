@@ -28,8 +28,14 @@ struct Intel_845PE_PCI_State {
     PCIDevice parent_obj;
     /*< public >*/
 
+    /* PAM "Shadow RAM" */
     PAMMemoryRegion pam_regions[PAM_REGIONS_COUNT];
-    MemoryRegion smram_blackhole, smram_region, high_smram_region;
+
+    /* PCI IRQ Table Region */
+    MemoryRegion pci_irq_table;
+
+    /* SMRAM */
+    MemoryRegion smram_region, high_smram_region;
     MemoryRegion cpu_smram, smram, low_smram, high_smram;
 };
 

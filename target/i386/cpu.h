@@ -387,6 +387,8 @@ typedef enum X86Seg {
 #define MSR_IA32_UCODE_REV              0x8b
 #define MSR_IA32_CORE_CAPABILITY        0xcf
 
+#define MSR_P4_CPU_FREQ                 0x2c
+
 #define MSR_IA32_ARCH_CAPABILITIES      0x10a
 #define ARCH_CAP_TSX_CTRL_MSR		(1<<7)
 

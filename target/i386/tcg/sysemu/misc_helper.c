@@ -18,6 +18,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/qemu-print.h"
 #include "qemu/main-loop.h"
 #include "cpu.h"
 #include "exec/helper-proto.h"
@@ -143,6 +144,8 @@ void helper_wrmsr(CPUX86State *env)
     CPUState *cs = env_cpu(env);
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_MSR, 1, GETPC());
+
+    qemu_printf("WRMSR: 0x%08x\n", (uint32_t)env->regs[R_ECX]);
 
     val = ((uint32_t)env->regs[R_EAX]) |
         ((uint64_t)((uint32_t)env->regs[R_EDX]) << 32);
@@ -315,7 +318,12 @@ void helper_rdmsr(CPUX86State *env)
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_MSR, 0, GETPC());
 
+    qemu_printf("RDMSR: 0x%08x\n", (uint32_t)env->regs[R_ECX]);
+
     switch ((uint32_t)env->regs[R_ECX]) {
+    case MSR_P4_CPU_FREQ: /* Pentium 4's CPU Frequency MSR. Needed by some BIOSes to be happy */
+        val = 0x11120011;
+    break;
     case MSR_IA32_SYSENTER_CS:
         val = env->sysenter_cs;
         break;
