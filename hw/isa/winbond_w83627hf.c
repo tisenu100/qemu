@@ -34,6 +34,7 @@
 #include "hw/char/parallel.h"
 #include "hw/char/serial.h"
 #include "hw/isa/winbond_w83627hf.h"
+#include "exec/ioport.h"
 
 static void winbond_reset_actual(WinbondState *d); /* Allocate here so we can reset per CR00 Bit 1 request */
 
@@ -118,12 +119,16 @@ static void winbond_remap_lpt(WinbondState *s)
 {
     s->lpt_io_base = (s->ldn_regs[1][0x60] << 8) | s->ldn_regs[1][0x61];
     bool enabled = (s->ldn_regs[1][0x30] & 1) && (s->lpt_io_base != 0);
-/*
+
+    /*
     memory_region_transaction_begin();
     memory_region_set_enabled(&s->lpt.iomem, enabled);
     memory_region_set_address(&s->lpt.iomem, s->lpt_io_base);
+    memory_region_set_enabled(s->lpt.portio_list.address_space, enabled);
+    memory_region_set_address(s->lpt.portio_list.address_space, s->lpt_io_base);
     memory_region_transaction_commit();
-*/
+    */
+
     if(!enabled)
         qemu_printf("Winbond W83627HF: LPT has been disabled!\n");
     else

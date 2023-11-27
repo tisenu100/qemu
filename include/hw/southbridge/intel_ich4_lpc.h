@@ -29,10 +29,9 @@
 struct ICH4State {
     PCIDevice dev;
 
-    uint64_t pic_levels;
+    uint64_t pic_level;
 
-    qemu_irq *pic;
-    qemu_irq isa_irqs_in[ISA_NUM_IRQS];
+    qemu_irq lpc_irqs_in[24]; /* i8259 + IOAPIC */
 
     /* This member isn't used. Just for save/load compatibility */
     int32_t pci_irq_levels_vmstate[ICH4_NUM_PIRQS];

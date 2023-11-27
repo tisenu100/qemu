@@ -58,12 +58,12 @@ static void intel_ich4_acpi(int msb, int lsb, int en, Intel_ICH4_ACPI_State *acp
     memory_region_transaction_commit();
 }
 
-/*
+
 static void intel_ich4_acpi_irq(int val, Intel_ICH4_ACPI_State *acpi)
 {
-
+    /* Nothing for now */
 }
-*/
+
 
 static void intel_ich4_gpio(int msb, int lsb, int en)
 {
@@ -102,59 +102,48 @@ int intel_ich4_irq_table(int irq)
 static PCIINTxRoute route_intx_pin_to_irq(void *opaque, int pin)
 {
     ICH4State *ich4 = opaque;
-    int irq = 0;
+    int irq = intel_ich4_irq_table(ich4->dev.config[((pin > 3) ? 0x64 : 0x60) + pin] & 0x0f);
     
-    if(!(ich4->dev.config[((pin > 3) ? 0x64 : 0x60) + pin] & 0x80))
-        irq = intel_ich4_irq_table(ich4->dev.config[((pin > 3) ? 0x64 : 0x60) + pin] & 0x0f);
-    else
+    if((ich4->dev.config[((pin > 3) ? 0x64 : 0x60) + pin] & 0x80) || (irq == 0))
         irq = 16 + pin;
 
     PCIINTxRoute route;
 
-    route.mode = !!irq ? PCI_INTX_ENABLED : PCI_INTX_DISABLED;
-    route.irq = !!irq ? irq : -1;
+    route.mode = PCI_INTX_ENABLED;
+    route.irq = irq;
 
     return route;
 }
 
-static void intel_ich4_pirq(ICH4State *ich4)
+static void intel_ich4_pirq(ICH4State *d) /* The PIRQ Router */
 {
-    PCIBus *bus = pci_get_bus(&ich4->dev);
-    PCIDevice *dev = &ich4->dev;
+    PCIDevice *dev = &d->dev;
 
 //    qemu_printf("Intel ICH4 LPC: We provoked in PIRQ update!\n");
 
+    
+
     for(int i = 0; i < 8; i++){
-        int level = pci_bus_get_irq_level(bus, i); /* PIRQ Level */
         int pic_irq = intel_ich4_irq_table(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x0f); /* Pick up the IRQ from the table */
-        int enabled = !(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x80) && (pic_irq != 0);
-        uint64_t mask; /* Qemu magic */
+        int enabled = !(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x80) && (pic_irq != 0); /* Check if the the PIRQ is asserted & if the IRQ value is valid on the table */
 
-        ich4->pic_levels = 0;
+        d->pic_level = 0;
 
-        if(!!enabled) {
+        if(!enabled)
+//            qemu_printf("Intel ICH4 LPC: PIRQ%c is handled by APIC (APIC: %d)\n", 'A' + i, 16 + i);
+            pic_irq = 16 + i;
+//        else
 //            qemu_printf("Intel ICH4 LPC: PIRQ%c has the IRQ of %d\n", 'A' + i, pic_irq & 0x0f);
-            mask = 1ULL << ((pic_irq * 8ULL) + i);
-            ich4->pic_levels &= ~mask;
-            ich4->pic_levels |= mask * !!level;
 
-            qemu_set_irq(ich4->pic[pic_irq], !!(ich4->pic_levels & (((1ULL << 8ULL) - 1) << (pic_irq * 8ULL))));
-        }
-        else {
-//            qemu_printf("Intel ICH4 LPC: PIRQ%c is handled by APIC or disabled (APIC: %d)\n", 'A' + i, 16 + i);
-            mask = 1ULL << (((16 + i) * 8ULL) + i);
-            ich4->pic_levels &= ~mask;
-            ich4->pic_levels |= mask * !!level;
-
-            qemu_set_irq(ich4->pic[pic_irq], !!(ich4->pic_levels & (((1ULL << 8ULL) - 1) << ((16 + i) * 8ULL))));
-        }
+        d->pic_level |= pci_bus_get_irq_level(pci_get_bus(dev), i);
+        qemu_set_irq(d->lpc_irqs_in[pic_irq], d->pic_level);
     }
 }
 
 static void intel_ich4_set_irq(void *opaque, int pirq, int level)
 {
-    ICH4State *ich4 = opaque;
-    intel_ich4_pirq(ich4);
+    ICH4State *d = opaque;
+    intel_ich4_pirq(d);
 }
 
 static void intel_ich4_nvr_reset(ICH4State *s)
@@ -181,7 +170,7 @@ static void intel_ich4_nvr(int u128e, int l128lock, int u128lock, ICH4State *s)
 
 static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
-    ICH4State *ich4 = ICH4_PCI_DEVICE(dev);
+    ICH4State *d = ICH4_PCI_DEVICE(dev);
 
     for(int i = 0; i < len; i++){
         int ro_only = 0;
@@ -371,7 +360,8 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
         case 0x40:
         case 0x41:
         case 0x44:
-            intel_ich4_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, ich4->acpi);
+            intel_ich4_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, d->acpi);
+            intel_ich4_acpi_irq(dev->config[0x44], d->acpi);
         break;
 
         case 0x58:
@@ -388,7 +378,7 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
         case 0x69:
         case 0x6a:
         case 0x6b:
-            pci_bus_fire_intx_routing_notifier(pci_get_bus(&ich4->dev));
+            pci_bus_fire_intx_routing_notifier(pci_get_bus(&d->dev));
             /* Qemu has some way to do IRQ updates 
                Let's figure
 
@@ -402,11 +392,11 @@ static void intel_ich4_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                0x6a PIRQG#
                0x6b PIRQH#
             */
-            intel_ich4_pirq(ich4);
+            intel_ich4_pirq(d);
         break;
 
         case 0xd8:
-            intel_ich4_nvr(dev->config[0xd8] & 0x04, dev->config[0xd8] & 0x08, dev->config[0xd8] & 0x10, ich4);
+            intel_ich4_nvr(dev->config[0xd8] & 0x04, dev->config[0xd8] & 0x08, dev->config[0xd8] & 0x10, d);
         break;
     }
 
@@ -444,38 +434,28 @@ static void intel_ich4_lpc_reset(DeviceState *s)
     dev->config[0xee] = 0x78;
     dev->config[0xef] = 0x56;
 
-    d->pic_levels = 0;
     d->rcr = 0;
 
     intel_ich4_acpi(0, 0, 0, d->acpi);
     intel_ich4_gpio(0, 0, 0);
+    intel_ich4_pirq(d);
     intel_ich4_nvr_reset(d);
 }
 
 static int ich4_post_load(void *opaque, int version_id)
 {
-    ICH4State *ich4 = opaque;
+    ICH4State *dev = opaque;
 
-    /*
-     * Because the i8259 has not been deserialized yet, qemu_irq_raise
-     * might bring the system to a different state than the saved one;
-     * for example, the interrupt could be masked but the i8259 would
-     * not know that yet and would trigger an interrupt in the CPU.
-     *
-     * Here, we update irq levels without raising the interrupt.
-     * Interrupt state will be deserialized separately through the i8259.
-     */
-    ich4->pic_levels = 0;
-    intel_ich4_pirq(ich4);
+    intel_ich4_pirq(dev);
     return 0;
 }
 
 static int ich4_pre_save(void *opaque)
 {
-    ICH4State *ich4 = opaque;
+    ICH4State *dev = opaque;
 
-    for (int i = 0; i < ARRAY_SIZE(ich4->pci_irq_levels_vmstate); i++) {
-        ich4->pci_irq_levels_vmstate[i] = pci_bus_get_irq_level(pci_get_bus(&ich4->dev), i);
+    for (int i = 0; i < ARRAY_SIZE(dev->pci_irq_levels_vmstate); i++) {
+        dev->pci_irq_levels_vmstate[i] = pci_bus_get_irq_level(pci_get_bus(&dev->dev), i);
     }
 
     return 0;
@@ -488,7 +468,7 @@ static bool piix_rcr_needed(void *opaque)
     return (ich4->rcr != 0);
 }
 
-static const VMStateDescription vmstate_ich4_rcr = {
+static const VMStateDescription vmstate_piix_rcr = {
     .name = "PIIX Compatible Reset Control",
     .version_id = 1,
     .minimum_version_id = 1,
@@ -501,8 +481,8 @@ static const VMStateDescription vmstate_ich4_rcr = {
 
 static const VMStateDescription vmstate_ich4 = {
     .name = "Intel ICH4 LPC",
-    .version_id = 3,
-    .minimum_version_id = 2,
+    .version_id = 1,
+    .minimum_version_id = 1,
     .post_load = ich4_post_load,
     .pre_save = ich4_pre_save,
     .fields = (VMStateField[]) {
@@ -510,7 +490,7 @@ static const VMStateDescription vmstate_ich4 = {
         VMSTATE_INT32_ARRAY_V(pci_irq_levels_vmstate, ICH4State, 8ULL, 3),
         VMSTATE_END_OF_LIST()
     },
-    .subsections = (const VMStateDescription*[]) {&vmstate_ich4_rcr, NULL}
+    .subsections = (const VMStateDescription*[]) {&vmstate_piix_rcr, NULL}
 };
 
 static void rcr_write(void *opaque, hwaddr addr, uint64_t val, unsigned len)
@@ -562,8 +542,8 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
     memory_region_add_subregion_overlap(pci_address_space_io(dev), 0xcf9, &d->rcr_mem, 1);
     qemu_printf("Intel ICH4 LPC: PIIX Compatible reset control is mounted at port 0xcf9h\n");
 
-    /* Register ISA IRQs */
-    isa_bus_register_input_irqs(isa_bus, d->isa_irqs_in);
+    /* Connect the IRQs */
+    isa_bus_register_input_irqs(isa_bus, d->lpc_irqs_in);
 
     /* Prepare the DMA controller */
     i8257_dma_init(isa_bus, 0);
@@ -575,13 +555,15 @@ static void intel_ich4_realize(PCIDevice *dev, Error **errp)
         return;
     uint32_t irq = object_property_get_uint(OBJECT(&d->rtc), "irq", &error_fatal);
     isa_connect_gpio_out(ISA_DEVICE(&d->rtc), 0, irq);
-
     qemu_printf("Intel ICH4 LPC: NVR has been sanitized\n");
 }
 
 static void intel_ich4_init(Object *obj)
 {
     ICH4State *d = ICH4_PCI_DEVICE(obj);
+
+    /* Register ISA IRQs */
+    qdev_init_gpio_out_named(DEVICE(obj), d->lpc_irqs_in, "lpc-irqs", 24);
 
     /* NVR */
     qemu_printf("Intel ICH4 LPC: Mounting the NVR up\n");
@@ -619,13 +601,13 @@ static const TypeInfo ich4_pci_type_info = {
 static void intel_ich4_lpc_realize(PCIDevice *dev, Error **errp)
 {
     ERRP_GUARD();
-    ICH4State *ich4 = ICH4_PCI_DEVICE(dev);
+    ICH4State *d = ICH4_PCI_DEVICE(dev);
     PCIBus *pci_bus = pci_get_bus(dev);
 
     intel_ich4_realize(dev, errp);
     if (*errp) return;
 
-    pci_bus_irqs(pci_bus, intel_ich4_set_irq, ich4, 8ULL);
+    pci_bus_irqs(pci_bus, intel_ich4_set_irq, d, 8);
     pci_bus_set_route_irq_fn(pci_bus, route_intx_pin_to_irq);
 }
 

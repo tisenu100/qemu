@@ -586,6 +586,11 @@ static void i8257_realize(DeviceState *dev, Error **errp)
     memory_region_add_subregion(isa_address_space_io(isa),
                                 d->base + (8 << d->dshift), &d->cont_io);
 
+    memory_region_init_io(&d->cont_io_alias, OBJECT(isa), &cont_io_ops, d,
+                          "dma-cont-alias", 8 << d->dshift);
+    memory_region_add_subregion(isa_address_space_io(isa),
+                                d->base_alias + (8 << d->dshift), &d->cont_io_alias);
+
     for (i = 0; i < ARRAY_SIZE(d->regs); ++i) {
         d->regs[i].transfer_handler = i8257_phony_handler;
     }
@@ -652,7 +657,7 @@ void i8257_dma_init(ISABus *bus, bool high_page_enable)
     qdev_prop_set_int32(d, "base", 0x00);
     qdev_prop_set_int32(d, "base-alias", 0x10);
     qdev_prop_set_int32(d, "page-base", 0x80);
-    qdev_prop_set_int32(d, "page-base-alias", 0x90);
+    qdev_prop_set_int32(d, "page-base-alias", 0x88);
     qdev_prop_set_int32(d, "pageh-base", high_page_enable ? 0x480 : -1);
     qdev_prop_set_int32(d, "dshift", 0);
     isa_realize_and_unref(isa1, bus, &error_fatal);

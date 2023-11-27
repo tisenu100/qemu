@@ -534,6 +534,7 @@ static void intel_845pe_pcihost_realize(DeviceState *dev, Error **errp)
 
     /* Start the PAM. This is just Shadow RAM. Qemu has it's own PAM implementation. We just follow behind as Intel 845PE is no different. */
     init_pam(&f->pam_regions[0], OBJECT(f), s->ram_memory, s->system_memory, s->pci_address_space, PAM_BIOS_BASE, PAM_BIOS_SIZE);
+    qemu_printf("Intel 845PE MCH: PAM Region 0x%05x is being prepared\n", PAM_BIOS_BASE);
     for (unsigned i = 0; i < ARRAY_SIZE(f->pam_regions) - 1; ++i) {
         init_pam(&f->pam_regions[i + 1], OBJECT(f), s->ram_memory,
                  s->system_memory, s->pci_address_space,

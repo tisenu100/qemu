@@ -40,6 +40,7 @@ struct I8257State {
     MemoryRegion channel_io;
     MemoryRegion channel_io_alias;
     MemoryRegion cont_io;
+    MemoryRegion cont_io_alias;
 
     QEMUBH *dma_bh;
     bool dma_bh_scheduled;

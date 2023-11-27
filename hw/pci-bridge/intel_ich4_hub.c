@@ -33,13 +33,24 @@
  * Stock Qemu PCI Bridge Implementation
  */
 
+static void intel_ich4_hub_reset(DeviceState *dev)
+{
+    PCIDevice *s = PCI_DEVICE(dev);
+
+    /* Initialize the Memory Mappings */
+    pci_bridge_write_config(s, 0x1c, 0x01, 0x01);
+    pci_bridge_write_config(s, 0x1e, 0x0280, 0x02);
+    pci_bridge_write_config(s, 0x20, 0xfff0, 0x02);
+    pci_bridge_write_config(s, 0x40, 0x00202802, 0x04);
+    pci_bridge_write_config(s, 0x51, 0x01, 0x01);
+    pci_bridge_write_config(s, 0x70, 0x20, 0x01);
+
+    pci_bridge_update_mappings(PCI_BRIDGE(dev));
+}
+
 static void intel_ich4_hub_realize(PCIDevice *dev, Error **errp)
 {
-    Intel_ICH4_Hub_State *br = INTEL_ICH4_HUB(dev);
-
     pci_bridge_initfn(dev, TYPE_PCI_BUS);
-
-    pci_bridge_update_mappings(PCI_BRIDGE(br));
 }
 
 static void intel_ich4_hub_class_init(ObjectClass *klass, void *data)
@@ -55,7 +66,7 @@ static void intel_ich4_hub_class_init(ObjectClass *klass, void *data)
     k->config_write = pci_bridge_write_config;
     k->config_read = pci_default_read_config;
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
-    dc->reset = pci_bridge_reset;
+    dc->reset = intel_ich4_hub_reset;
     dc->vmsd = &vmstate_pci_device;
     dc->user_creatable = false;
 }

@@ -84,15 +84,83 @@
 #include "hw/acpi/intel_ich4_acpi.h"
 #include "qemu/qemu-print.h"
 
-/*
- * Return the global irq number corresponding to a given device irq
- * pin. We could also use the bus number to have a more precise mapping.
- */
-static int pc_pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
+static int lpc_pirq(PCIDevice *pci_dev, int pci_intx)
 {
-    int slot_addend;
-    slot_addend = PCI_SLOT(pci_dev->devfn) - 1;
-    return (pci_intx + slot_addend) & 7;
+    uint16_t pirq_table;
+
+    switch(PCI_SLOT(pci_dev->devfn))
+    {
+        case 0x01:
+            pirq_table = 0x7210;
+        break;
+
+        case 0x02:
+            pirq_table = 0x3210;
+        break;
+
+        case 0x1d:
+            pirq_table = 0x7230;
+        break;
+
+        case 0x1e:
+            pirq_table = 0x3210;
+        break;
+
+        case 0x1f:
+            pirq_table = 0x3012;
+        break;
+
+        default:
+            qemu_printf("LPC PIRQ: Invalid Slot Assignment %d", PCI_SLOT(pci_dev->devfn));
+            pirq_table = 0x3210;
+        break;
+    }
+
+    pirq_table = (pirq_table >> (4 * pci_intx)) & 7;
+
+    return pirq_table;
+}
+
+static int hub_pirq(PCIDevice *pci_dev, int pci_intx)
+{
+    uint16_t pirq_table;
+    switch(PCI_SLOT(pci_dev->devfn))
+    {
+        case 0x01:
+            pirq_table = 0x1321;
+        break;
+
+        case 0x02:
+            pirq_table = 0x1032;
+        break;
+
+        case 0x03:
+            pirq_table = 0x2103;
+        break;
+
+        case 0x05:
+            pirq_table = 0x0321;
+        break;
+
+        case 0x07:
+            pirq_table = 0x2103;
+        break;
+
+        case 0x08:
+            pirq_table = 0x7654;
+        break;
+
+        default:
+            qemu_printf("HUB PIRQ: Invalid Slot Assignment %d", PCI_SLOT(pci_dev->devfn));
+            pirq_table = 0x3210;
+        break;
+    }
+
+    pirq_table = (pirq_table >> (4 * pci_intx)) & 7;
+
+    qemu_printf("HUB PIRQ: Assigning for Slot %d PIRQ %c\n", PCI_SLOT(pci_dev->devfn), 'A' + pirq_table);
+
+    return pirq_table;
 }
 
 static void pc_init1(MachineState *machine)
@@ -106,15 +174,14 @@ static void pc_init1(MachineState *machine)
     MemoryRegion *ram_memory;
     MemoryRegion *pci_memory = NULL;
     MemoryRegion *rom_memory = system_memory;
-    ram_addr_t lowmem;
-    uint64_t hole64_size = 0;
 
+    /* Initialize the Memory */
     qemu_printf("PC: Loading Memory...\n");
     ram_memory = machine->ram;
     if (!pcms->max_ram_below_4g) {
         pcms->max_ram_below_4g = 4 * GiB;
     }
-    lowmem = pcms->max_ram_below_4g;
+    ram_addr_t lowmem = pcms->max_ram_below_4g; /* Memory below the 4GB range */
     if (machine->ram_size >= pcms->max_ram_below_4g) {
         if (pcmc->gigabyte_align) {
             if (lowmem > 0xc0000000) {
@@ -175,15 +242,17 @@ static void pc_init1(MachineState *machine)
 
     sysbus_realize_and_unref(SYS_BUS_DEVICE(phb), &error_fatal);
 
-    PCIBus *pci_bus = PCI_BUS(qdev_get_child_bus(DEVICE(phb), "pci.0")); /* Create Bus 0 */
-    pci_bus_map_irqs(pci_bus, pc_pci_slot_get_pirq); /* Assign PIRQ's to the slots */
+    PCIBus *pci_bus = PCI_BUS(qdev_get_child_bus(DEVICE(phb), "pci.0")); /* Get Bus 0 */
+    pci_bus_map_irqs(pci_bus, lpc_pirq); /* Assign PIRQ's to the slots */
     pcms->bus = pci_bus;
 
-    hole64_size = object_property_get_uint(phb, PCI_HOST_PROP_PCI_HOLE64_SIZE, &error_abort); /* PCI 64-bit Hole Size */
+    uint64_t hole64_size = object_property_get_uint(phb, PCI_HOST_PROP_PCI_HOLE64_SIZE, &error_abort); /* PCI 64-bit Hole Size */
 
-    PCIDevice *intel_845pe_agp = pci_create_simple(pci_bus, PCI_DEVFN(0x01, 0), TYPE_INTEL_845PE_AGP);
+    /* AGP Bridge */
+    PCIDevice *intel_845pe_agp = pci_new(PCI_DEVFN(0x01, 0), TYPE_INTEL_845PE_AGP);
     PCIBridge *agp_bridge = PCI_BRIDGE(intel_845pe_agp);
-    pci_bridge_map_irq(agp_bridge, "pci.1", pc_pci_slot_get_pirq);
+    pci_bridge_map_irq(agp_bridge, "pci.1", lpc_pirq); /* We don't have a dedicated AGP router considering we don't actually use AGP at all */
+    pci_realize_and_unref(intel_845pe_agp, pci_bus, &error_fatal);
 
     /* Qemu's Guest Info Picker */
     pc_guest_info_init(pcms);
@@ -194,17 +263,20 @@ static void pc_init1(MachineState *machine)
 
     /* IRQ Interrupts */
     qemu_printf("PC: Receiving Interrupts...\n");
-    GSIState *gsi_state = pc_gsi_create(&x86ms->gsi, pcmc->pci_enabled);
+    GSIState *gsi_state = pc_gsi_create(&x86ms->gsi, 1);
 
     /* Initialize the ICH4 */
     qemu_printf("PC: Starting Intel ICH4...\n");
     ICH4State *lpc;
 
     qemu_printf("PC: Starting Intel ICH4 LPC...\n");
-    PCIDevice *intel_ich4_lpc = pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1f, 0), TYPE_ICH4_DEVICE); /* Assign the LPC Bridge as a PCI device */
+    PCIDevice *intel_ich4_lpc = pci_new_multifunction(PCI_DEVFN(0x1f,0), TYPE_ICH4_DEVICE); /* Intel ICH4 LPC Bridge */
+    lpc = ICH4_PCI_DEVICE(intel_ich4_lpc);
 
-    lpc = ICH4_PCI_DEVICE(intel_ich4_lpc); /* Intel ICH4 LPC Bridge */
-    lpc->pic = x86ms->gsi;
+    for (int i = 0; i < 24; i++){  /* GSI (PIC + IOAPIC) Interrupts */
+        qdev_connect_gpio_out_named(DEVICE(intel_ich4_lpc), "lpc-irqs", i, x86ms->gsi[i]);
+    }
+    pci_realize_and_unref(intel_ich4_lpc, pci_bus, &error_fatal); 
 
     /* Mount to the LPC BUS */
     qemu_printf("PC: Mount the Intel ICH4 LPC to the proper LPC Bus\n");
@@ -230,9 +302,10 @@ static void pc_init1(MachineState *machine)
     }
 
     /* Initialize the Hub bridge */
-    PCIDevice *intel_ich4_hub = pci_create_simple(pci_bus, PCI_DEVFN(0x30, 0), TYPE_INTEL_ICH4_HUB);
+    PCIDevice *intel_ich4_hub = pci_new(PCI_DEVFN(0x1e, 0), TYPE_INTEL_ICH4_HUB);
     PCIBridge *hub_bridge = PCI_BRIDGE(intel_ich4_hub);
-    pci_bridge_map_irq(hub_bridge, "pci.2", pc_pci_slot_get_pirq);
+    pci_bridge_map_irq(hub_bridge, "pci.2", hub_pirq);
+    pci_realize_and_unref(intel_ich4_hub, pci_bus, &error_fatal);
 
     /* Now that we got the basics up. Let's load our basic components */
     qemu_printf("PC: Loading Glue Components...\n");
