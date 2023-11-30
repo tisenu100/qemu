@@ -7,6 +7,6 @@ system_ss.add(when: 'CONFIG_PIIX', if_true: files('piix.c'))
 system_ss.add(when: 'CONFIG_SMC37C669', if_true: files('smc37c669-superio.c'))
 system_ss.add(when: 'CONFIG_VT82C686', if_true: files('vt82c686.c'))
 
-system_ss.add(when: 'CONFIG_INTEL_ICH4', if_true: files('intel_ich4_lpc.c', 'winbond_w83627hf.c'))
+system_ss.add(when: 'CONFIG_LPC_INTEL_ICH5', if_true: files('intel_ich5_lpc.c', 'winbond_w83627hf.c'))
 
 specific_ss.add(when: 'CONFIG_LPC_ICH9', if_true: files('lpc_ich9.c'))

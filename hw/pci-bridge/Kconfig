@@ -27,10 +27,13 @@ config I82801B11
     default y if PCI_DEVICES
     depends on PCI_EXPRESS
 
-config AGP_INTEL_845PE
+config AGP_INTEL_865PE
     bool
 
-config HUB_INTEL_ICH4
+config CSA_INTEL_865PE
+    bool
+
+config HUB_INTEL_ICH5
     bool
 
 config DEC_PCI

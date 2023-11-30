@@ -1,5 +1,5 @@
 /*
- * Intel 845PE AGP Bridge
+ * Intel 865PE AGP Bridge
  *
  * Copyright (c) 2023 Tiseno100
  * 
@@ -27,53 +27,61 @@
 #include "hw/pci/pci_bridge.h"
 #include "hw/pci/pci_bus.h"
 #include "qemu/module.h"
-#include "hw/pci-bridge/intel_845pe_agp.h"
+#include "hw/pci-bridge/intel_865pe_agp.h"
 
 /*
  * Stock Qemu PCI Bridge Implementation
  */
 
-static void intel_845pe_agp_realize(PCIDevice *dev, Error **errp)
+static void intel_865pe_agp_reset(DeviceState *dev)
 {
-    Intel_845PE_AGP_State *br = INTEL_845PE_AGP(dev);
+    PCIDevice *s = PCI_DEVICE(dev);
 
-    pci_bridge_initfn(dev, TYPE_PCI_BUS);
+    pci_bridge_write_config(s, 0x1c, 0xf0, 1);
+    pci_bridge_write_config(s, 0x1e, 0x02a0, 2);
+    pci_bridge_write_config(s, 0x20, 0xfff0, 2);
+    pci_bridge_write_config(s, 0x24, 0xfff0, 2);
 
-    pci_bridge_update_mappings(PCI_BRIDGE(br));
+    pci_bridge_update_mappings(PCI_BRIDGE(dev));
 }
 
-static void intel_845pe_agp_class_init(ObjectClass *klass, void *data)
+static void intel_865pe_agp_realize(PCIDevice *dev, Error **errp)
+{
+    pci_bridge_initfn(dev, TYPE_PCI_BUS);
+}
+
+static void intel_865pe_agp_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
 
-    k->realize = intel_845pe_agp_realize;
+    k->realize = intel_865pe_agp_realize;
     k->exit = pci_bridge_exitfn;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
-    k->device_id = PCI_DEVICE_ID_INTEL_845PE_AGP;
+    k->device_id = PCI_DEVICE_ID_INTEL_865PE_AGP;
     k->revision = 0x02;
     k->config_write = pci_bridge_write_config;
     k->config_read = pci_default_read_config;
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
-    dc->reset = pci_bridge_reset;
+    dc->reset = intel_865pe_agp_reset;
     dc->vmsd = &vmstate_pci_device;
     dc->user_creatable = false;
 }
 
-static const TypeInfo intel_845pe_agp_info = {
-    .name          = TYPE_INTEL_845PE_AGP,
+static const TypeInfo intel_865pe_agp_info = {
+    .name          = TYPE_INTEL_865PE_AGP,
     .parent        = TYPE_PCI_BRIDGE,
-    .class_init    = intel_845pe_agp_class_init,
-    .instance_size = sizeof(Intel_845PE_AGP_State),
+    .class_init    = intel_865pe_agp_class_init,
+    .instance_size = sizeof(Intel_865PE_AGP_State),
     .interfaces = (InterfaceInfo[]) {
         { INTERFACE_CONVENTIONAL_PCI_DEVICE },
         { },
     },
 };
 
-static void intel_845pe_agp_register_types(void)
+static void intel_865pe_agp_register_types(void)
 {
-    type_register_static(&intel_845pe_agp_info);
+    type_register_static(&intel_865pe_agp_info);
 }
 
-type_init(intel_845pe_agp_register_types)
+type_init(intel_865pe_agp_register_types)

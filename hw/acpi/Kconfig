@@ -35,7 +35,7 @@ config ACPI_PIIX4
     select ACPI_SMBUS
     select APM
 
-config ACPI_INTEL_ICH4
+config ACPI_INTEL_ICH5
     bool
     select ACPI
     select ACPI_SMBUS

@@ -38,7 +38,7 @@ config PCI_I440FX
     select PCI
     select PAM
 
-config PCI_INTEL_845PE
+config PCI_INTEL_865PE
     bool
     select PCI
     select PAM

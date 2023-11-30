@@ -1,5 +1,5 @@
 /*
- * Intel ICH4 Baseboard
+ * Intel ICH5 Baseboard
  *
  * Copyright (c) 2003-2004 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -27,8 +27,8 @@
 
     Our Components are:
     
-    Northbridge: Intel 845PE Brookdale
-    Southbridge: Intel ICH4 Desktop
+    Northbridge: Intel 865PE Springdale
+    Southbridge: Intel ICH5 Desktop
     Super I/O:   Winbond W83627HF
 
 */
@@ -66,11 +66,13 @@
 #include "target/i386/cpu.h"
 
 #include "hw/i386/pc.h"
-#include "hw/pci-host/intel_845pe.h"
-#include "hw/pci-bridge/intel_845pe_agp.h"
-#include "hw/southbridge/intel_ich4_lpc.h"
-#include "hw/pci-bridge/intel_ich4_hub.h"
-#include "hw/rtc/intel_ich4_nvr.h"
+#include "hw/pci-host/intel_865pe.h"
+#include "hw/pci-bridge/intel_865pe_agp.h"
+#include "hw/pci-bridge/intel_865pe_csa.h"
+#include "hw/mem/intel_865pe_ovf.h"
+#include "hw/southbridge/intel_ich5_lpc.h"
+#include "hw/pci-bridge/intel_ich5_hub.h"
+#include "hw/rtc/intel_ich5_nvr.h"
 #include "hw/isa/winbond_w83627hf.h"
 #include "hw/block/fdc.h"
 #include "hw/block/fdc-internal.h"
@@ -81,7 +83,8 @@
 #include "hw/ide/pci.h"
 #include "hw/ide/piix.h"
 #include "hw/usb/hcd-uhci.h"
-#include "hw/acpi/intel_ich4_acpi.h"
+#include "hw/acpi/intel_ich5_acpi.h"
+#include "hw/i2c/ics950219.h"
 #include "qemu/qemu-print.h"
 
 static int lpc_pirq(PCIDevice *pci_dev, int pci_intx)
@@ -92,10 +95,6 @@ static int lpc_pirq(PCIDevice *pci_dev, int pci_intx)
     {
         case 0x01:
             pirq_table = 0x7210;
-        break;
-
-        case 0x02:
-            pirq_table = 0x3210;
         break;
 
         case 0x1d:
@@ -126,28 +125,32 @@ static int hub_pirq(PCIDevice *pci_dev, int pci_intx)
     uint16_t pirq_table;
     switch(PCI_SLOT(pci_dev->devfn))
     {
-        case 0x01:
-            pirq_table = 0x1321;
+        case 0x00:
+            pirq_table = 0x7654;
         break;
 
-        case 0x02:
-            pirq_table = 0x1032;
-        break;
-
-        case 0x03:
-            pirq_table = 0x2103;
+        case 0x04:
+            pirq_table = 0x3210;
         break;
 
         case 0x05:
-            pirq_table = 0x0321;
+            pirq_table = 0x7653;
         break;
 
         case 0x07:
-            pirq_table = 0x2103;
+            pirq_table = 0x5376;
         break;
 
         case 0x08:
             pirq_table = 0x7654;
+        break;
+
+        case 0x09:
+            pirq_table = 0x6537;
+        break;
+
+        case 0x0a:
+            pirq_table = 0x3765;
         break;
 
         default:
@@ -165,7 +168,7 @@ static int hub_pirq(PCIDevice *pci_dev, int pci_intx)
 
 static void pc_init1(MachineState *machine)
 {
-    qemu_printf(" --- Intel ICH4 Start --- \n");
+    qemu_printf(" --- Intel ICH5 Baseboard Start --- \n");
     PCMachineState *pcms = PC_MACHINE(machine);
     PCMachineClass *pcmc = PC_MACHINE_GET_CLASS(pcms);
     X86MachineState *x86ms = X86_MACHINE(machine);
@@ -216,16 +219,16 @@ static void pc_init1(MachineState *machine)
 
     /* Initialize the PCI bus */
     qemu_printf("PC: Loading PCI bus...\n");
-    Object *phb = OBJECT(qdev_new(TYPE_INTEL_845PE_HOST_BRIDGE)); /* The PCI Object */
+    Object *phb = OBJECT(qdev_new(TYPE_INTEL_865PE_HOST_BRIDGE)); /* The PCI Object */
 
     pci_memory = g_new(MemoryRegion, 1);
     memory_region_init(pci_memory, NULL, "pci", UINT64_MAX);
     rom_memory = pci_memory; /* Copy ROM Memory Contents to PCI Memory */
 
-    qemu_printf("PC: Loading Intel 845PE MCH...\n");
-    object_property_add_child(OBJECT(machine), "intel_845pe", phb); /* Intel 845PE */
+    qemu_printf("PC: Loading Intel 865PE MCH...\n");
+    object_property_add_child(OBJECT(machine), TYPE_INTEL_865PE_PCI_DEVICE, phb); /* Intel 865PE */
 
-    /* Memory Mappings. Conduct Page 102 of the Intel 845PE datasheet */
+    /* Memory Mappings. Conduct Page 102 of the Intel 865PE datasheet */
     object_property_set_link(phb, PCI_HOST_PROP_RAM_MEM, OBJECT(ram_memory), &error_fatal); /* Entire Memory */
 
     object_property_set_link(phb, PCI_HOST_PROP_PCI_MEM, OBJECT(pci_memory), &error_fatal); /* PCI Memory Range*/
@@ -238,7 +241,7 @@ static void pc_init1(MachineState *machine)
 
     object_property_set_uint(phb, PCI_HOST_ABOVE_4G_MEM_SIZE, x86ms->above_4g_mem_size, &error_fatal); /* Extended above 4GB range */
 
-    object_property_set_str(phb, INTEL_845PE_HOST_PROP_PCI_TYPE, TYPE_INTEL_845PE_PCI_DEVICE, &error_fatal); /* Set the Component type of the Intel 845PE */
+    object_property_set_str(phb, INTEL_865PE_HOST_PROP_PCI_TYPE, TYPE_INTEL_865PE_PCI_DEVICE, &error_fatal); /* Set the Component type of the Intel 865PE */
 
     sysbus_realize_and_unref(SYS_BUS_DEVICE(phb), &error_fatal);
 
@@ -248,11 +251,8 @@ static void pc_init1(MachineState *machine)
 
     uint64_t hole64_size = object_property_get_uint(phb, PCI_HOST_PROP_PCI_HOLE64_SIZE, &error_abort); /* PCI 64-bit Hole Size */
 
-    /* AGP Bridge */
-    PCIDevice *intel_845pe_agp = pci_new(PCI_DEVFN(0x01, 0), TYPE_INTEL_845PE_AGP);
-    PCIBridge *agp_bridge = PCI_BRIDGE(intel_845pe_agp);
-    pci_bridge_map_irq(agp_bridge, "pci.1", lpc_pirq); /* We don't have a dedicated AGP router considering we don't actually use AGP at all */
-    pci_realize_and_unref(intel_845pe_agp, pci_bus, &error_fatal);
+    /* Overflow/DRAM Handler */
+    pci_create_simple(pci_bus, PCI_DEVFN(0x06, 0), TYPE_INTEL_865PE_OVF);
 
     /* Qemu's Guest Info Picker */
     pc_guest_info_init(pcms);
@@ -265,31 +265,28 @@ static void pc_init1(MachineState *machine)
     qemu_printf("PC: Receiving Interrupts...\n");
     GSIState *gsi_state = pc_gsi_create(&x86ms->gsi, 1);
 
-    /* Initialize the ICH4 */
-    qemu_printf("PC: Starting Intel ICH4...\n");
-    ICH4State *lpc;
+    /* Initialize the Intel ICH5 */
+    qemu_printf("PC: Starting Intel ICH5...\n");
+    Intel_ICH5_LPC_State *lpc;
 
-    qemu_printf("PC: Starting Intel ICH4 LPC...\n");
-    PCIDevice *intel_ich4_lpc = pci_new_multifunction(PCI_DEVFN(0x1f,0), TYPE_ICH4_DEVICE); /* Intel ICH4 LPC Bridge */
-    lpc = ICH4_PCI_DEVICE(intel_ich4_lpc);
+    qemu_printf("PC: Starting Intel ICH5 LPC...\n");
+    PCIDevice *intel_ich5_lpc = pci_new_multifunction(PCI_DEVFN(0x1f,0), TYPE_INTEL_ICH5); /* Intel ICH5 LPC Bridge */
+    lpc = INTEL_ICH5_LPC(intel_ich5_lpc);
 
     for (int i = 0; i < 24; i++){  /* GSI (PIC + IOAPIC) Interrupts */
-        qdev_connect_gpio_out_named(DEVICE(intel_ich4_lpc), "lpc-irqs", i, x86ms->gsi[i]);
+        qdev_connect_gpio_out_named(DEVICE(intel_ich5_lpc), "lpc-irqs", i, x86ms->gsi[i]);
     }
-    pci_realize_and_unref(intel_ich4_lpc, pci_bus, &error_fatal); 
+    pci_realize_and_unref(intel_ich5_lpc, pci_bus, &error_fatal); 
 
     /* Mount to the LPC BUS */
-    qemu_printf("PC: Mount the Intel ICH4 LPC to the proper LPC Bus\n");
+    qemu_printf("PC: Mount the Intel ICH5 LPC to the proper LPC Bus\n");
     ISABus *isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(lpc), "isa.0"));
 
     /* Mount the RTC */
-    ISADevice *rtc_state = ISA_DEVICE(object_resolve_path_component(OBJECT(intel_ich4_lpc), "rtc"));
+    ISADevice *rtc_state = ISA_DEVICE(object_resolve_path_component(OBJECT(intel_ich5_lpc), "rtc"));
 
-    /* Set up LPC Interrupts */
-    isa_bus_register_input_irqs(isa_bus, x86ms->gsi);
-
-    /* Setup APIC Interrupts */
-    ioapic_init_gsi(gsi_state, "intel_845pe");
+    /* Shove the I/O APIC addresses on the PCI Memory Address */
+    ioapic_init_gsi(gsi_state, TYPE_INTEL_865PE_PCI_DEVICE);
 
     /* That's more of a Qemu related feature related to their FPU code. Pretty much raises IRQ13 on a TCG FPU exception */
     if (tcg_enabled()) {
@@ -301,15 +298,30 @@ static void pc_init1(MachineState *machine)
         pcms->vmport = ON_OFF_AUTO_ON;
     }
 
-    /* Initialize the Hub bridge */
-    PCIDevice *intel_ich4_hub = pci_new(PCI_DEVFN(0x1e, 0), TYPE_INTEL_ICH4_HUB);
-    PCIBridge *hub_bridge = PCI_BRIDGE(intel_ich4_hub);
-    pci_bridge_map_irq(hub_bridge, "pci.2", hub_pirq);
-    pci_realize_and_unref(intel_ich4_hub, pci_bus, &error_fatal);
+    /* Now that we have the MCH & the Hub. Unleash the Bridges */
+    /* Note: Bus resides are according to the board we target  */
+
+    /* AGP Bridge residing on Bus 1 */
+    PCIDevice *intel_865pe_agp = pci_new(PCI_DEVFN(0x01, 0), TYPE_INTEL_865PE_AGP);
+    PCIBridge *agp_bridge = PCI_BRIDGE(intel_865pe_agp);
+    pci_bridge_map_irq(agp_bridge, "pci.1", lpc_pirq); /* We don't have a dedicated AGP router considering we don't actually use AGP at all */
+    pci_realize_and_unref(intel_865pe_agp, pci_bus, &error_fatal);
+
+    /* CSA Bridge residing on Bus 2 */
+    PCIDevice *intel_865pe_csa = pci_new(PCI_DEVFN(0x03, 0), TYPE_INTEL_865PE_CSA);
+    PCIBridge *csa_bridge = PCI_BRIDGE(intel_865pe_csa);
+    pci_bridge_map_irq(csa_bridge, "pci.2", lpc_pirq);
+    pci_realize_and_unref(intel_865pe_csa, pci_bus, &error_fatal);
+
+    /* Hub Bridge residing on Bus 3 */
+    PCIDevice *intel_ich5_hub = pci_new(PCI_DEVFN(0x1e, 0), TYPE_INTEL_ICH5_HUB);
+    PCIBridge *hub_bridge = PCI_BRIDGE(intel_ich5_hub);
+    pci_bridge_map_irq(hub_bridge, "pci.3", hub_pirq);
+    pci_realize_and_unref(intel_ich5_hub, pci_bus, &error_fatal);
 
     /* Now that we got the basics up. Let's load our basic components */
     qemu_printf("PC: Loading Glue Components...\n");
-    pcms->hpet_enabled = true; /* Intel ICH4 comes with HPET */
+    pcms->hpet_enabled = true; /* Intel ICH5 comes with HPET */
     pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, false, 0x08); /* VLSI Logic */
     object_property_add_link(OBJECT(machine), "rtc_state", TYPE_ISA_DEVICE, (Object **)&x86ms->rtc, object_property_allow_set_link, OBJ_PROP_LINK_STRONG); /* NVR */
     object_property_set_link(OBJECT(machine), "rtc_state", OBJECT(rtc_state), &error_abort);
@@ -322,95 +334,50 @@ static void pc_init1(MachineState *machine)
     */
     qemu_printf("PC: Loading Winbond W83627HF...");
     ISADevice *winbond = isa_new(TYPE_WINBOND_W83627HF); /* Winbond W83827HF */
-    WinbondState *winbond_mount = WINBOND_W83627HF(winbond); /* Meant for mounting */
     isa_realize_and_unref(winbond, isa_bus, &error_fatal); /* Mount it to the LPC bus */
-
-    /* Form the FDC and then bind it to the Winbond to program it */
-    ISADevice *fdc = isa_new(TYPE_ISA_FDC);
-    winbond_mount->fd = fdc;
-    DriveInfo *fd[MAX_FD];
-
-    for (int i = 0; i < MAX_FD; i++) {
-        fd[i] = drive_get(IF_FLOPPY, 0, i);
-    }
-
-    isa_realize_and_unref(fdc, isa_bus, &error_fatal);
-    isa_fdc_init_drives(fdc, fd);
-    FDCtrl fdd = isa_fdc_get_controller(fdc);
-
-    winbond_link_fdc(winbond_mount, fdd); /* Mount the FDC to the Winbond */
-
-    /* Form the LPT and then bind it to the Winbond to program it */
-    ISADevice *lpt = isa_new(TYPE_ISA_PARALLEL);
-    DeviceState *lpt_dev = DEVICE(lpt);
-    qdev_prop_set_uint32(lpt_dev, "index", 0);
-    qdev_prop_set_chr(lpt_dev, "chardev", parallel_hds[0]);
-
-    ParallelState parallel_state = parallel_get_state(lpt); /* Unlike Serial & FDC we don't really need to mount the state from inside the code. What a gimmick :b */
-
-    isa_realize_and_unref(lpt, isa_bus, &error_fatal);
-    winbond_mount->parallel = lpt;
-    winbond_link_lpt(winbond_mount, parallel_state); /* Mount the LPT to the Winbond */
-
-    /* Form the UARTs and then bind them to the Winbond to program them */
-    ISADevice *uart[2];
-    DeviceState *uart_dev[2];
-    SerialState uart_state[2];
-
-    for(int i = 0; i < 1; i++){ /* Two NSC 16550 Compatible Serial Handlers */
-        uart[i] = isa_new(TYPE_ISA_SERIAL);
-        uart_dev[i] = DEVICE(uart[i]);
-        qdev_prop_set_uint32(uart_dev[i], "index", i);
-        qdev_prop_set_chr(uart_dev[i], "chardev", serial_hd(i));
-        isa_realize_and_unref(uart[i], isa_bus, &error_fatal);
-
-        winbond_mount->serial[i] = uart[i];
-
-        uart_state[i] = serial_isa_get_state(uart[i]);
-        winbond_link_uart(winbond_mount, uart_state[i], i); /* Mount the UARTs to the Winbond */
-    }
 
     /* IDE Compatible Drives */
     qemu_printf("PC: Loading IDE...\n");
-    PCIDevice *intel_ich4_ide = pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 0x01), TYPE_INTEL_ICH4_IDE);
-    pci_ide_create_devs(intel_ich4_ide);
+    PCIDevice *intel_ich5_ide = pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 0x01), TYPE_INTEL_ICH5_IDE);
+    pci_ide_create_devs(intel_ich5_ide);
 
     /* Create UHCI Compatible Controllers */
-    /* These are Qemu Standard Devices. Intel ICH4 EHCI is even implemented by the Qemu team themselves. */
+    /* These are Qemu Standard Devices    */
     qemu_printf("PC: Loading USB...\n");
-    pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1d, 0), TYPE_INTEL_ICH4_UHCI(0));
-    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 2), TYPE_INTEL_ICH4_UHCI(2));
-    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 4), TYPE_INTEL_ICH4_UHCI(4));
-    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 7), "intel-ich4-ehci");
+    pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1d, 0), TYPE_INTEL_ICH5_UHCI(0));
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 1), TYPE_INTEL_ICH5_UHCI(1));
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 2), TYPE_INTEL_ICH5_UHCI(2));
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 3), TYPE_INTEL_ICH5_UHCI(3));
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 7), "intel-ich5-ehci");
 
     /* ACPI */
     qemu_printf("PC: Loading ACPI...\n");
-    PCIDevice *intel_ich4_acpi = pci_new(PCI_DEVFN(0x1f, 3), TYPE_INTEL_ICH4_ACPI);;
+    PCIDevice *intel_ich5_acpi = pci_new(PCI_DEVFN(0x1f, 3), TYPE_INTEL_ICH5_ACPI);;
 
     /* We expect a prebaked ACPI Table from the BIOS */
     pcms->acpi_build_enabled = 0;
 
-    /* Create a Intel ICH4 Compatible ACPI device */
-    Intel_ICH4_ACPI_State *acpi = INTEL_ICH4_ACPI(intel_ich4_acpi);
+    /* Create a Intel ICH5 Compatible ACPI device */
+    Intel_ICH5_ACPI_State *acpi = INTEL_ICH5_ACPI(intel_ich5_acpi);
 
     /* Checks if SMM exists. We do a Pentium 4 machine which makes SMM presence mandatory. */
-    qdev_prop_set_bit(DEVICE(intel_ich4_acpi), "smm-enabled", kvm_enabled() ? kvm_has_smm() : 1);
+    qdev_prop_set_bit(DEVICE(intel_ich5_acpi), "smm-enabled", kvm_enabled() ? kvm_has_smm() : 1);
 
     /* Probably to provoke an initialization */
-    pci_realize_and_unref(intel_ich4_acpi, pci_bus, &error_fatal);
+    pci_realize_and_unref(intel_ich5_acpi, pci_bus, &error_fatal);
 
     /* Set the ACPI IRQ pin to 9 like PIIX4 design. Normally we got to allow the ACPI to remap from the MCH */
-    qdev_connect_gpio_out(DEVICE(intel_ich4_acpi), 0, x86ms->gsi[9]);
+    qdev_connect_gpio_out(DEVICE(intel_ich5_acpi), 0, x86ms->gsi[9]);
 
     /* SMI Trigger */
     qemu_irq smi_irq = qemu_allocate_irq(pc_acpi_smi_interrupt, first_cpu, 0);
-    qdev_connect_gpio_out_named(DEVICE(intel_ich4_acpi), "smi-irq", 0, smi_irq);
+    qdev_connect_gpio_out_named(DEVICE(intel_ich5_acpi), "smi-irq", 0, smi_irq);
 
     /* SMBus */
     /* Initialize the SMBus*/
-    pcms->smbus = I2C_BUS(qdev_get_child_bus(DEVICE(intel_ich4_acpi), "i2c"));
+    pcms->smbus = I2C_BUS(qdev_get_child_bus(DEVICE(intel_ich5_acpi), "i2c"));
 
-    /* Intel 845PE utilizes DDR Memory */
+    /* Intel 865PE utilizes DDR Memory */
     uint8_t *spd[4];
     int modules;
 
@@ -468,15 +435,18 @@ static void pc_init1(MachineState *machine)
         spd_data_generate(DDR, machine->ram_size);
     else
         for(int i = 0; i < modules; i++)
-            smbus_eeprom_init_one(pcms->smbus, 0x50 + i, spd[i]);  
+            smbus_eeprom_init_one(pcms->smbus, 0x50 + i, spd[i]);
+
+    /* ICS Clock Chip */
+    ics950219_init(pcms->smbus);
 
     /* Link ACPIState with the LPC so we can remap it's I/O base */
-    intel_ich4_link_acpi(lpc, acpi);
+    intel_ich5_link_acpi(lpc, acpi);
 
-    qemu_printf("PC: Entering...\n");
+    qemu_printf(" --- Intel ICH5 Baseboard Finish --- \n");
 }
 
-#define DEFINE_INTEL_ICH4_MACHINE(suffix, name, compatfn, optionfn) \
+#define DEFINE_INTEL_ICH5_MACHINE(suffix, name, compatfn, optionfn) \
     static void pc_init_##suffix(MachineState *machine) \
     { \
         void (*compat)(MachineState *m) = (compatfn); \
@@ -487,25 +457,25 @@ static void pc_init1(MachineState *machine)
     } \
     DEFINE_PC_MACHINE(suffix, name, pc_init_##suffix, optionfn)
 
-static void pc_ich4_machine_options(MachineClass *m)
+static void pc_ich5_machine_options(MachineClass *m)
 {
     PCMachineClass *pcmc = PC_MACHINE_CLASS(m);
     pcmc->pci_root_uid = 0;
     pcmc->default_cpu_version = 1;
     pcmc->pci_enabled = 1;
-    m->family = "pc-ich4";
-    m->desc = "Intel ICH4 Based Machine";
+    m->family = "intel-ich5-baseboard";
+    m->desc = "Intel ICH5 Baseboard";
     m->default_display = "std";
     m->no_parallel = false;
     machine_class_allow_dynamic_sysbus_dev(m, TYPE_RAMFB_DEVICE);
     machine_class_allow_dynamic_sysbus_dev(m, TYPE_VMBUS_BRIDGE);
 }
 
-static void pc_ich4_8_2_machine_options(MachineClass *m)
+static void pc_ich5_8_2_machine_options(MachineClass *m)
 {
-    pc_ich4_machine_options(m);
-    m->alias = "pc-ich4";
+    pc_ich5_machine_options(m);
+    m->alias = "intel-ich5-baseboard";
     m->is_default = true;
 }
 
-DEFINE_INTEL_ICH4_MACHINE(v8_2, "pc-ich4-8.2", NULL, pc_ich4_8_2_machine_options);
+DEFINE_INTEL_ICH5_MACHINE(v8_2, "intel-ich5-baseboard-8.2", NULL, pc_ich5_8_2_machine_options);

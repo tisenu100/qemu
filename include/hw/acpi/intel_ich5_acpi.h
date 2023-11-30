@@ -1,5 +1,5 @@
 /*
- * Intel ICH4 based ACPI Implementation based on Qemus PIIX4 PM structure
+ * Intel ICH5 based ACPI Implementation based on Qemus PIIX4 PM structure
  *
  * Copyright (c) 2006 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -20,21 +20,18 @@
  * GNU GPL, version 2 or (at your option) any later version.
  */
 
-#ifndef HW_ACPI_PIIX4_H
-#define HW_ACPI_PIIX4_H
+#ifndef HW_INTEL_ICH5_ACPI_H
+#define HW_INTEL_ICH5_ACPI_H
 
 #include "hw/pci/pci_device.h"
 #include "hw/acpi/acpi.h"
-#include "hw/acpi/cpu_hotplug.h"
-#include "hw/acpi/memory_hotplug.h"
-#include "hw/acpi/pcihp.h"
 #include "hw/i2c/pm_smbus.h"
 #include "hw/isa/apm.h"
 
-#define TYPE_INTEL_ICH4_ACPI "intel-ich4-acpi"
-OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH4_ACPI_State, INTEL_ICH4_ACPI)
+#define TYPE_INTEL_ICH5_ACPI "intel-ich5-acpi"
+OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH5_ACPI_State, INTEL_ICH5_ACPI)
 
-struct Intel_ICH4_ACPI_State {
+struct Intel_ICH5_ACPI_State {
     /*< private >*/
     PCIDevice parent_obj;
     /*< public >*/
@@ -67,22 +64,13 @@ struct Intel_ICH4_ACPI_State {
     /* SMI/SCI Qemu Stuff */
     bool smm_enabled;
     bool smm_compat;
+    bool not_migrate_acpi_index;
     Notifier machine_ready;
     Notifier powerdown_notifier;
-
-    /* Qemu stuff */
-    AcpiPciHpState acpi_pci_hotplug;
-    bool not_migrate_acpi_index;
 
     uint8_t disable_s3;
     uint8_t disable_s4;
     uint8_t s4_val;
-
-    bool cpu_hotplug_legacy;
-    AcpiCpuHotplug gpe_cpu;
-    CPUHotplugState cpuhp_state;
-
-    MemHotplugState acpi_memory_hotplug;
 };
 
 #endif

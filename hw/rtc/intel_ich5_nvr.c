@@ -1,5 +1,5 @@
 /*
- * Intel ICH4 NVR
+ * Intel ICH5 NVR
  *
  * Copyright (c) 2003-2004 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -44,7 +44,7 @@
 #include "sysemu/reset.h"
 #include "sysemu/runstate.h"
 #include "sysemu/rtc.h"
-#include "hw/rtc/intel_ich4_nvr.h"
+#include "hw/rtc/intel_ich5_nvr.h"
 #include "hw/rtc/mc146818rtc_regs.h"
 #include "migration/vmstate.h"
 #include "qapi/error.h"
@@ -61,18 +61,18 @@
 #define RTC_CLOCK_RATE            32768
 #define UIP_HOLD_LENGTH           (8 * NANOSECONDS_PER_SECOND / 32768)
 
-static void rtc_set_time(Intel_ICH4_NVR_State *s);
-static void rtc_update_time(Intel_ICH4_NVR_State *s);
-static void rtc_set_cmos(Intel_ICH4_NVR_State *s, const struct tm *tm);
-static inline int rtc_from_bcd(Intel_ICH4_NVR_State *s, int a);
-static uint64_t get_next_alarm(Intel_ICH4_NVR_State *s);
+static void rtc_set_time(Intel_ICH5_NVR_State *s);
+static void rtc_update_time(Intel_ICH5_NVR_State *s);
+static void rtc_set_cmos(Intel_ICH5_NVR_State *s, const struct tm *tm);
+static inline int rtc_from_bcd(Intel_ICH5_NVR_State *s, int a);
+static uint64_t get_next_alarm(Intel_ICH5_NVR_State *s);
 
-static inline bool rtc_running(Intel_ICH4_NVR_State *s)
+static inline bool rtc_running(Intel_ICH5_NVR_State *s)
 {
     return (!(s->cmos_data[RTC_REG_B] & REG_B_SET) && (s->cmos_data[RTC_REG_A] & 0x70) <= 0x20);
 }
 
-static uint64_t get_guest_rtc_ns(Intel_ICH4_NVR_State *s)
+static uint64_t get_guest_rtc_ns(Intel_ICH5_NVR_State *s)
 {
     uint64_t guest_clock = qemu_clock_get_ns(rtc_clock);
 
@@ -80,7 +80,7 @@ static uint64_t get_guest_rtc_ns(Intel_ICH4_NVR_State *s)
         guest_clock - s->last_update + s->offset;
 }
 
-static void rtc_coalesced_timer_update(Intel_ICH4_NVR_State *s)
+static void rtc_coalesced_timer_update(Intel_ICH5_NVR_State *s)
 {
     if (s->irq_coalesced == 0) {
         timer_del(s->coalesced_timer);
@@ -93,18 +93,18 @@ static void rtc_coalesced_timer_update(Intel_ICH4_NVR_State *s)
     }
 }
 
-static QLIST_HEAD(, Intel_ICH4_NVR_State) rtc_devices = QLIST_HEAD_INITIALIZER(rtc_devices);
+static QLIST_HEAD(, Intel_ICH5_NVR_State) rtc_devices = QLIST_HEAD_INITIALIZER(rtc_devices);
 
 void qmp_rtc_reset_reinjection_new(Error **errp)
 {
-    Intel_ICH4_NVR_State *s;
+    Intel_ICH5_NVR_State *s;
 
     QLIST_FOREACH(s, &rtc_devices, link) {
         s->irq_coalesced = 0;
     }
 }
 
-static bool rtc_policy_slew_deliver_irq(Intel_ICH4_NVR_State *s)
+static bool rtc_policy_slew_deliver_irq(Intel_ICH5_NVR_State *s)
 {
     kvm_reset_irq_delivered();
     qemu_irq_raise(s->irq);
@@ -113,7 +113,7 @@ static bool rtc_policy_slew_deliver_irq(Intel_ICH4_NVR_State *s)
 
 static void rtc_coalesced_timer(void *opaque)
 {
-    Intel_ICH4_NVR_State *s = opaque;
+    Intel_ICH5_NVR_State *s = opaque;
 
     if (s->irq_coalesced != 0) {
         s->cmos_data[RTC_REG_C] |= 0xc0;
@@ -125,7 +125,7 @@ static void rtc_coalesced_timer(void *opaque)
     rtc_coalesced_timer_update(s);
 }
 
-static uint32_t rtc_periodic_clock_ticks(Intel_ICH4_NVR_State *s)
+static uint32_t rtc_periodic_clock_ticks(Intel_ICH5_NVR_State *s)
 {
     int period_code;
 
@@ -142,7 +142,7 @@ static uint32_t rtc_periodic_clock_ticks(Intel_ICH4_NVR_State *s)
  * handle periodic timer. @old_period indicates the periodic timer update
  * is just due to period adjustment.
  */
-static void periodic_timer_update(Intel_ICH4_NVR_State *s, int64_t current_time,
+static void periodic_timer_update(Intel_ICH5_NVR_State *s, int64_t current_time,
                                   uint32_t old_period, bool period_change)
 {
     uint32_t period;
@@ -215,7 +215,7 @@ static void periodic_timer_update(Intel_ICH4_NVR_State *s, int64_t current_time,
 
 static void rtc_periodic_timer(void *opaque)
 {
-    Intel_ICH4_NVR_State *s = opaque;
+    Intel_ICH5_NVR_State *s = opaque;
 
     periodic_timer_update(s, s->next_periodic_time, s->period, false);
     s->cmos_data[RTC_REG_C] |= REG_C_PF;
@@ -234,7 +234,7 @@ static void rtc_periodic_timer(void *opaque)
 }
 
 /* handle update-ended timer */
-static void check_update_timer(Intel_ICH4_NVR_State *s)
+static void check_update_timer(Intel_ICH5_NVR_State *s)
 {
     uint64_t next_update_time;
     uint64_t guest_nsec;
@@ -285,7 +285,7 @@ static void check_update_timer(Intel_ICH4_NVR_State *s)
     }
 }
 
-static inline uint8_t convert_hour(Intel_ICH4_NVR_State *s, uint8_t hour)
+static inline uint8_t convert_hour(Intel_ICH5_NVR_State *s, uint8_t hour)
 {
     if (!(s->cmos_data[RTC_REG_B] & REG_B_24H)) {
         hour %= 12;
@@ -296,7 +296,7 @@ static inline uint8_t convert_hour(Intel_ICH4_NVR_State *s, uint8_t hour)
     return hour;
 }
 
-static uint64_t get_next_alarm(Intel_ICH4_NVR_State *s)
+static uint64_t get_next_alarm(Intel_ICH5_NVR_State *s)
 {
     int32_t alarm_sec, alarm_min, alarm_hour, cur_hour, cur_min, cur_sec;
     int32_t hour, min, sec;
@@ -389,7 +389,7 @@ static uint64_t get_next_alarm(Intel_ICH4_NVR_State *s)
 
 static void rtc_update_timer(void *opaque)
 {
-    Intel_ICH4_NVR_State *s = opaque;
+    Intel_ICH5_NVR_State *s = opaque;
     int32_t irqs = REG_C_UF;
     int32_t new_irqs;
 
@@ -418,13 +418,13 @@ static void rtc_update_timer(void *opaque)
 static void cmos_ioport_write(void *opaque, hwaddr addr,
                               uint64_t data, unsigned size)
 {
-    Intel_ICH4_NVR_State *s = opaque;
+    Intel_ICH5_NVR_State *s = opaque;
     uint32_t old_period;
     bool update_periodic_timer;
 
     if (!(addr & 1)) {
         s->cmos_index = data & 0x7f;
-    } else if ((addr & 1) && ((addr % 4) > 1) && s->u128e && !((s->cmos_index >= 0x38) && (s->cmos_index <= 0x3f) && s->u128lock)) { /* Intel ICH4 allows us to lock that range */
+    } else if ((addr & 1) && ((addr % 4) > 1) && s->u128e && !((s->cmos_index >= 0x38) && (s->cmos_index <= 0x3f) && s->u128lock)) { /* Intel ICH5 allows us to lock that range */
         s->cmos_data[s->cmos_index + 0x80] = data;
     } else {
         switch(s->cmos_index) {
@@ -529,14 +529,14 @@ static void cmos_ioport_write(void *opaque, hwaddr addr,
             /* cannot write to them */
             break;
         default:
-            if(!((s->cmos_index >= 0x38) && (s->cmos_index <= 0x3f) && s->l128lock)) /* Intel ICH4 allows us to lock that range */
+            if(!((s->cmos_index >= 0x38) && (s->cmos_index <= 0x3f) && s->l128lock)) /* Intel ICH5 allows us to lock that range */
                 s->cmos_data[s->cmos_index] = data;
             break;
         }
     }
 }
 
-static inline int rtc_to_bcd(Intel_ICH4_NVR_State *s, int a)
+static inline int rtc_to_bcd(Intel_ICH5_NVR_State *s, int a)
 {
     if (s->cmos_data[RTC_REG_B] & REG_B_DM) {
         return a;
@@ -545,7 +545,7 @@ static inline int rtc_to_bcd(Intel_ICH4_NVR_State *s, int a)
     }
 }
 
-static inline int rtc_from_bcd(Intel_ICH4_NVR_State *s, int a)
+static inline int rtc_from_bcd(Intel_ICH5_NVR_State *s, int a)
 {
     if ((a & 0xc0) == 0xc0) {
         return -1;
@@ -557,7 +557,7 @@ static inline int rtc_from_bcd(Intel_ICH4_NVR_State *s, int a)
     }
 }
 
-static void rtc_get_time(Intel_ICH4_NVR_State *s, struct tm *tm)
+static void rtc_get_time(Intel_ICH5_NVR_State *s, struct tm *tm)
 {
     tm->tm_sec = rtc_from_bcd(s, s->cmos_data[RTC_SECONDS]);
     tm->tm_min = rtc_from_bcd(s, s->cmos_data[RTC_MINUTES]);
@@ -576,7 +576,7 @@ static void rtc_get_time(Intel_ICH4_NVR_State *s, struct tm *tm)
         rtc_from_bcd(s, s->cmos_data[RTC_CENTURY]) * 100 - 1900;
 }
 
-static void rtc_set_time(Intel_ICH4_NVR_State *s)
+static void rtc_set_time(Intel_ICH5_NVR_State *s)
 {
     struct tm tm;
     g_autofree const char *qom_path = object_get_canonical_path(OBJECT(s));
@@ -588,7 +588,7 @@ static void rtc_set_time(Intel_ICH4_NVR_State *s)
     qapi_event_send_rtc_change(qemu_timedate_diff(&tm), qom_path);
 }
 
-static void rtc_set_cmos(Intel_ICH4_NVR_State *s, const struct tm *tm)
+static void rtc_set_cmos(Intel_ICH5_NVR_State *s, const struct tm *tm)
 {
     int year;
 
@@ -613,7 +613,7 @@ static void rtc_set_cmos(Intel_ICH4_NVR_State *s, const struct tm *tm)
     s->cmos_data[RTC_CENTURY] = rtc_to_bcd(s, year / 100);
 }
 
-static void rtc_update_time(Intel_ICH4_NVR_State *s)
+static void rtc_update_time(Intel_ICH5_NVR_State *s)
 {
     struct tm ret;
     time_t guest_sec;
@@ -629,7 +629,7 @@ static void rtc_update_time(Intel_ICH4_NVR_State *s)
     }
 }
 
-static int update_in_progress(Intel_ICH4_NVR_State *s)
+static int update_in_progress(Intel_ICH5_NVR_State *s)
 {
     int64_t guest_nsec;
 
@@ -658,7 +658,7 @@ static int update_in_progress(Intel_ICH4_NVR_State *s)
 static uint64_t cmos_ioport_read(void *opaque, hwaddr addr,
                                  unsigned size)
 {
-    Intel_ICH4_NVR_State *s = opaque;
+    Intel_ICH5_NVR_State *s = opaque;
     int ret;
     if (!(addr & 1)) {
         ret = 0xff;
@@ -717,13 +717,13 @@ static uint64_t cmos_ioport_read(void *opaque, hwaddr addr,
     return ret;
 }
 
-void intel_ich4_nvr_write_cmos(Intel_ICH4_NVR_State *s, int addr, int val)
+void intel_ich5_nvr_write_cmos(Intel_ICH5_NVR_State *s, int addr, int val)
 {
     if (addr >= 0 && addr <= 127)
         s->cmos_data[addr] = val;
 }
 
-int intel_ich4_nvr_read_cmos(Intel_ICH4_NVR_State *s, int addr)
+int intel_ich5_nvr_read_cmos(Intel_ICH5_NVR_State *s, int addr)
 {
     assert(addr >= 0 && addr <= 127);
     return s->cmos_data[addr];
@@ -731,7 +731,7 @@ int intel_ich4_nvr_read_cmos(Intel_ICH4_NVR_State *s, int addr)
 
 static void rtc_set_date_from_host(ISADevice *dev)
 {
-    Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(dev);
+    Intel_ICH5_NVR_State *s = INTEL_ICH5_NVR(dev);
     struct tm tm;
 
     qemu_get_timedate(&tm, 0);
@@ -746,7 +746,7 @@ static void rtc_set_date_from_host(ISADevice *dev)
 
 static int rtc_pre_save(void *opaque)
 {
-    Intel_ICH4_NVR_State *s = opaque;
+    Intel_ICH5_NVR_State *s = opaque;
 
     rtc_update_time(s);
 
@@ -755,7 +755,7 @@ static int rtc_pre_save(void *opaque)
 
 static int rtc_post_load(void *opaque, int version_id)
 {
-    Intel_ICH4_NVR_State *s = opaque;
+    Intel_ICH5_NVR_State *s = opaque;
 
     if (version_id <= 2 || rtc_clock == QEMU_CLOCK_REALTIME) {
         rtc_set_time(s);
@@ -786,41 +786,41 @@ static int rtc_post_load(void *opaque, int version_id)
 
 static bool rtc_irq_reinject_on_ack_count_needed(void *opaque)
 {
-    Intel_ICH4_NVR_State *s = (Intel_ICH4_NVR_State *)opaque;
+    Intel_ICH5_NVR_State *s = (Intel_ICH5_NVR_State *)opaque;
     return s->irq_reinject_on_ack_count != 0;
 }
 
 static const VMStateDescription vmstate_rtc_irq_reinject_on_ack_count = {
-    .name = "intel_ich4_nvr/irq_reinject_on_ack_count",
+    .name = "intel_ich5_nvr/irq_reinject_on_ack_count",
     .version_id = 1,
     .minimum_version_id = 1,
     .needed = rtc_irq_reinject_on_ack_count_needed,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT16(irq_reinject_on_ack_count, Intel_ICH4_NVR_State),
+        VMSTATE_UINT16(irq_reinject_on_ack_count, Intel_ICH5_NVR_State),
         VMSTATE_END_OF_LIST()
     }
 };
 
 static const VMStateDescription vmstate_rtc = {
-    .name = "intel_ich4_nvr",
+    .name = "intel_ich5_nvr",
     .version_id = 3,
     .minimum_version_id = 1,
     .pre_save = rtc_pre_save,
     .post_load = rtc_post_load,
     .fields = (VMStateField[]) {
-        VMSTATE_BUFFER(cmos_data, Intel_ICH4_NVR_State),
-        VMSTATE_UINT8(cmos_index, Intel_ICH4_NVR_State),
+        VMSTATE_BUFFER(cmos_data, Intel_ICH5_NVR_State),
+        VMSTATE_UINT8(cmos_index, Intel_ICH5_NVR_State),
         VMSTATE_UNUSED(7*4),
-        VMSTATE_TIMER_PTR(periodic_timer, Intel_ICH4_NVR_State),
-        VMSTATE_INT64(next_periodic_time, Intel_ICH4_NVR_State),
+        VMSTATE_TIMER_PTR(periodic_timer, Intel_ICH5_NVR_State),
+        VMSTATE_INT64(next_periodic_time, Intel_ICH5_NVR_State),
         VMSTATE_UNUSED(3*8),
-        VMSTATE_UINT32_V(irq_coalesced, Intel_ICH4_NVR_State, 2),
-        VMSTATE_UINT32_V(period, Intel_ICH4_NVR_State, 2),
-        VMSTATE_UINT64_V(base_rtc, Intel_ICH4_NVR_State, 3),
-        VMSTATE_UINT64_V(last_update, Intel_ICH4_NVR_State, 3),
-        VMSTATE_INT64_V(offset, Intel_ICH4_NVR_State, 3),
-        VMSTATE_TIMER_PTR_V(update_timer, Intel_ICH4_NVR_State, 3),
-        VMSTATE_UINT64_V(next_alarm_time, Intel_ICH4_NVR_State, 3),
+        VMSTATE_UINT32_V(irq_coalesced, Intel_ICH5_NVR_State, 2),
+        VMSTATE_UINT32_V(period, Intel_ICH5_NVR_State, 2),
+        VMSTATE_UINT64_V(base_rtc, Intel_ICH5_NVR_State, 3),
+        VMSTATE_UINT64_V(last_update, Intel_ICH5_NVR_State, 3),
+        VMSTATE_INT64_V(offset, Intel_ICH5_NVR_State, 3),
+        VMSTATE_TIMER_PTR_V(update_timer, Intel_ICH5_NVR_State, 3),
+        VMSTATE_UINT64_V(next_alarm_time, Intel_ICH5_NVR_State, 3),
         VMSTATE_END_OF_LIST()
     },
     .subsections = (const VMStateDescription*[]) {
@@ -833,9 +833,9 @@ static const VMStateDescription vmstate_rtc = {
    BIOS will read it and start S3 resume at POST Entry */
 static void rtc_notify_suspend(Notifier *notifier, void *data)
 {
-    Intel_ICH4_NVR_State *s = container_of(notifier, Intel_ICH4_NVR_State,
+    Intel_ICH5_NVR_State *s = container_of(notifier, Intel_ICH5_NVR_State,
                                        suspend_notifier);
-    intel_ich4_nvr_write_cmos(s, 0xF, 0xFE);
+    intel_ich5_nvr_write_cmos(s, 0xF, 0xFE);
 }
 
 static const MemoryRegionOps cmos_ops = {
@@ -850,16 +850,16 @@ static const MemoryRegionOps cmos_ops = {
 
 static void rtc_get_date(Object *obj, struct tm *current_tm, Error **errp)
 {
-    Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(obj);
+    Intel_ICH5_NVR_State *s = INTEL_ICH5_NVR(obj);
 
     rtc_update_time(s);
     rtc_get_time(s, current_tm);
 }
 
-static void intel_ich4_rtc_realizefn(DeviceState *dev, Error **errp)
+static void intel_ich5_rtc_realizefn(DeviceState *dev, Error **errp)
 {
     ISADevice *isadev = ISA_DEVICE(dev);
-    Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(dev);
+    Intel_ICH5_NVR_State *s = INTEL_ICH5_NVR(dev);
 
     /* CMOS Storage */
     DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
@@ -930,16 +930,16 @@ static void intel_ich4_rtc_realizefn(DeviceState *dev, Error **errp)
     QLIST_INSERT_HEAD(&rtc_devices, s, link);
 }
 
-Intel_ICH4_NVR_State *intel_ich4_nvr_init(ISABus *bus, int base_year,
+Intel_ICH5_NVR_State *intel_ich5_nvr_init(ISABus *bus, int base_year,
                                     qemu_irq intercept_irq)
 {
     DeviceState *dev;
     ISADevice *isadev;
-    Intel_ICH4_NVR_State *s;
+    Intel_ICH5_NVR_State *s;
 
-    isadev = isa_new(TYPE_INTEL_ICH4_NVR);
+    isadev = isa_new(TYPE_INTEL_ICH5_NVR);
     dev = DEVICE(isadev);
-    s = INTEL_ICH4_NVR(isadev);
+    s = INTEL_ICH5_NVR(isadev);
     qdev_prop_set_int32(dev, "base_year", base_year);
     isa_realize_and_unref(isadev, bus, &error_fatal);
     if (intercept_irq) {
@@ -953,18 +953,18 @@ Intel_ICH4_NVR_State *intel_ich4_nvr_init(ISABus *bus, int base_year,
     return s;
 }
 
-static Property intel_ich4_nvr_properties[] = {
-    DEFINE_PROP_INT32("base_year", Intel_ICH4_NVR_State, base_year, 1900),
-    DEFINE_PROP_UINT16("iobase", Intel_ICH4_NVR_State, io_base, 0x70),
-    DEFINE_PROP_UINT8("irq", Intel_ICH4_NVR_State, isairq, RTC_ISA_IRQ),
-    DEFINE_PROP_LOSTTICKPOLICY("lost_tick_policy", Intel_ICH4_NVR_State, lost_tick_policy, LOST_TICK_POLICY_DISCARD),
-    DEFINE_PROP_DRIVE("drive", Intel_ICH4_NVR_State, blk),
+static Property intel_ich5_nvr_properties[] = {
+    DEFINE_PROP_INT32("base_year", Intel_ICH5_NVR_State, base_year, 1900),
+    DEFINE_PROP_UINT16("iobase", Intel_ICH5_NVR_State, io_base, 0x70),
+    DEFINE_PROP_UINT8("irq", Intel_ICH5_NVR_State, isairq, RTC_ISA_IRQ),
+    DEFINE_PROP_LOSTTICKPOLICY("lost_tick_policy", Intel_ICH5_NVR_State, lost_tick_policy, LOST_TICK_POLICY_DISCARD),
+    DEFINE_PROP_DRIVE("drive", Intel_ICH5_NVR_State, blk),
     DEFINE_PROP_END_OF_LIST(),
 };
 
 static void rtc_reset_enter(Object *obj, ResetType type)
 {
-    Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(obj);
+    Intel_ICH5_NVR_State *s = INTEL_ICH5_NVR(obj);
 
     /* Write CMOS data */
     blk_pwrite(s->blk, 0, 256, s->cmos_data, 0);
@@ -988,35 +988,35 @@ static void rtc_reset_enter(Object *obj, ResetType type)
 
 static void rtc_reset_hold(Object *obj)
 {
-    Intel_ICH4_NVR_State *s = INTEL_ICH4_NVR(obj);
+    Intel_ICH5_NVR_State *s = INTEL_ICH5_NVR(obj);
 
     qemu_irq_lower(s->irq);
 }
 
-static void intel_ich4_nvr_initfn(ObjectClass *klass, void *data)
+static void intel_ich5_nvr_initfn(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
 
-    dc->realize = intel_ich4_rtc_realizefn;
+    dc->realize = intel_ich5_rtc_realizefn;
     dc->vmsd = &vmstate_rtc;
     dc->user_creatable = false;
     rc->phases.enter = rtc_reset_enter;
     rc->phases.hold = rtc_reset_hold;
-    device_class_set_props(dc, intel_ich4_nvr_properties);
+    device_class_set_props(dc, intel_ich5_nvr_properties);
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }
 
-static const TypeInfo intel_ich4_nvr_info = {
-    .name          = TYPE_INTEL_ICH4_NVR,
+static const TypeInfo intel_ich5_nvr_info = {
+    .name          = TYPE_INTEL_ICH5_NVR,
     .parent        = TYPE_ISA_DEVICE,
-    .instance_size = sizeof(Intel_ICH4_NVR_State),
-    .class_init    = intel_ich4_nvr_initfn,
+    .instance_size = sizeof(Intel_ICH5_NVR_State),
+    .class_init    = intel_ich5_nvr_initfn,
 };
 
-static void intel_ich4_nvr_register_types(void)
+static void intel_ich5_nvr_register_types(void)
 {
-    type_register_static(&intel_ich4_nvr_info);
+    type_register_static(&intel_ich5_nvr_info);
 }
 
-type_init(intel_ich4_nvr_register_types)
+type_init(intel_ich5_nvr_register_types)

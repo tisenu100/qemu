@@ -29,6 +29,7 @@
 #include "hw/dma/i8257.h"
 #include "qapi/error.h"
 #include "qemu/main-loop.h"
+#include "qemu/qemu-print.h"
 #include "qemu/module.h"
 #include "qemu/log.h"
 #include "trace.h"
@@ -71,12 +72,14 @@ static void i8257_write_page(void *opaque, uint32_t nport, uint32_t data)
 {
     I8257State *d = opaque;
     int ichan;
-
+    
     ichan = channels[nport & 7];
+    qemu_printf("Writing %d on Channel %d\n", data, ichan);
     if (-1 == ichan) {
         dolog ("invalid channel %#x %#x\n", nport, data);
         return;
     }
+
     d->regs[ichan].page = data;
 }
 
@@ -90,6 +93,7 @@ static void i8257_write_pageh(void *opaque, uint32_t nport, uint32_t data)
         dolog ("invalid channel %#x %#x\n", nport, data);
         return;
     }
+
     d->regs[ichan].pageh = data;
 }
 
@@ -103,6 +107,7 @@ static uint32_t i8257_read_page(void *opaque, uint32_t nport)
         dolog ("invalid channel read %#x\n", nport);
         return 0;
     }
+    qemu_printf("Reading %d from Channel %d\n", d->regs[ichan].page, ichan);
     return d->regs[ichan].page;
 }
 
@@ -116,6 +121,7 @@ static uint32_t i8257_read_pageh(void *opaque, uint32_t nport)
         dolog ("invalid channel read %#x\n", nport);
         return 0;
     }
+
     return d->regs[ichan].pageh;
 }
 
@@ -185,6 +191,7 @@ static void i8257_write_cont(void *opaque, hwaddr nport, uint64_t data,
     int iport, ichan = 0;
 
     iport = (nport >> d->dshift) & 0x0f;
+
     switch (iport) {
     case 0x00:                  /* command */
         if ((data != 0) && (data & CMD_NOT_SUPPORTED)) {
@@ -564,17 +571,9 @@ static void i8257_realize(DeviceState *dev, Error **errp)
     memory_region_add_subregion(isa_address_space_io(isa),
                                 d->base, &d->channel_io);
 
-    memory_region_init_io(&d->channel_io_alias, OBJECT(dev), &channel_io_ops, d,
-                          "dma-chan-alias", 8 << d->dshift);
-    memory_region_add_subregion(isa_address_space_io(isa),
-                                d->base_alias, &d->channel_io_alias);
-
     isa_register_portio_list(isa, &d->portio_page,
                              d->page_base, page_portio_list, d,
                              "dma-page");
-    isa_register_portio_list(isa, &d->portio_page_alias,
-                             d->page_base_alias, page_portio_list, d,
-                             "dma-page-alias");
     if (d->pageh_base >= 0) {
         isa_register_portio_list(isa, &d->portio_pageh,
                                  d->pageh_base, pageh_portio_list, d,
@@ -586,11 +585,6 @@ static void i8257_realize(DeviceState *dev, Error **errp)
     memory_region_add_subregion(isa_address_space_io(isa),
                                 d->base + (8 << d->dshift), &d->cont_io);
 
-    memory_region_init_io(&d->cont_io_alias, OBJECT(isa), &cont_io_ops, d,
-                          "dma-cont-alias", 8 << d->dshift);
-    memory_region_add_subregion(isa_address_space_io(isa),
-                                d->base_alias + (8 << d->dshift), &d->cont_io_alias);
-
     for (i = 0; i < ARRAY_SIZE(d->regs); ++i) {
         d->regs[i].transfer_handler = i8257_phony_handler;
     }
@@ -600,9 +594,7 @@ static void i8257_realize(DeviceState *dev, Error **errp)
 
 static Property i8257_properties[] = {
     DEFINE_PROP_INT32("base", I8257State, base, 0x00),
-    DEFINE_PROP_INT32("base-alias", I8257State, base_alias, 0x10),
     DEFINE_PROP_INT32("page-base", I8257State, page_base, 0x80),
-    DEFINE_PROP_INT32("page-base-alias", I8257State, page_base_alias, 0x90),
     DEFINE_PROP_INT32("pageh-base", I8257State, pageh_base, 0x480),
     DEFINE_PROP_INT32("dshift", I8257State, dshift, 0),
     DEFINE_PROP_END_OF_LIST()
@@ -655,9 +647,7 @@ void i8257_dma_init(ISABus *bus, bool high_page_enable)
     isa1 = isa_new(TYPE_I8257);
     d = DEVICE(isa1);
     qdev_prop_set_int32(d, "base", 0x00);
-    qdev_prop_set_int32(d, "base-alias", 0x10);
     qdev_prop_set_int32(d, "page-base", 0x80);
-    qdev_prop_set_int32(d, "page-base-alias", 0x88);
     qdev_prop_set_int32(d, "pageh-base", high_page_enable ? 0x480 : -1);
     qdev_prop_set_int32(d, "dshift", 0);
     isa_realize_and_unref(isa1, bus, &error_fatal);
@@ -665,9 +655,7 @@ void i8257_dma_init(ISABus *bus, bool high_page_enable)
     isa2 = isa_new(TYPE_I8257);
     d = DEVICE(isa2);
     qdev_prop_set_int32(d, "base", 0xc0);
-    qdev_prop_set_int32(d, "base-alias", 0xd0);
     qdev_prop_set_int32(d, "page-base", 0x88);
-    qdev_prop_set_int32(d, "page-base-alias", 0x98);
     qdev_prop_set_int32(d, "pageh-base", high_page_enable ? 0x488 : -1);
     qdev_prop_set_int32(d, "dshift", 1);
     isa_realize_and_unref(isa2, bus, &error_fatal);

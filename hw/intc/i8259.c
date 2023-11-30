@@ -395,8 +395,6 @@ static void pic_realize(DeviceState *dev, Error **errp)
 
     memory_region_init_io(&s->base_io, OBJECT(s), &pic_base_ioport_ops, s,
                           "pic", 2);
-    memory_region_init_io(&s->base_io_alias, OBJECT(s), &pic_base_ioport_ops, s,
-                          "pic-alias", 2);
     memory_region_init_io(&s->elcr_io, OBJECT(s), &pic_elcr_ioport_ops, s,
                           "elcr", 1);
 

@@ -16,3 +16,6 @@ config CXL_MEM_DEVICE
     bool
     default y if CXL
     select MEM_DEVICE
+
+config OVF_INTEL_865PE
+    bool

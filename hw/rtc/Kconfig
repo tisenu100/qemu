@@ -22,7 +22,7 @@ config MC146818RTC
     depends on ISA_BUS
     bool
 
-config NVR_INTEL_ICH4
+config NVR_INTEL_ICH5
     depends on ISA_BUS
     bool
 

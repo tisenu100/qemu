@@ -1,5 +1,5 @@
 /*
- * Intel® 845GE/845PE Chipset
+ * Intel 865P/865PE Memory Controller Hub
  *
  * Copyright (c) 2006 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -9,30 +9,27 @@
  *
  */
 
-#ifndef HW_PCI_INTEL_845PE_H
-#define HW_PCI_INTEL_845PE_H
+#ifndef HW_PCI_INTEL_865PE_H
+#define HW_PCI_INTEL_865PE_H
 
 #include "hw/pci/pci_device.h"
 #include "hw/pci-host/pam.h"
 #include "qom/object.h"
 
-#define INTEL_845PE_HOST_PROP_PCI_TYPE "pci-type"
+#define INTEL_865PE_HOST_PROP_PCI_TYPE "pci-type"
 
-#define TYPE_INTEL_845PE_HOST_BRIDGE "intel_845pe-pcihost"
-#define TYPE_INTEL_845PE_PCI_DEVICE "intel_845pe"
+#define TYPE_INTEL_865PE_HOST_BRIDGE "intel_865pe-pcihost"
+#define TYPE_INTEL_865PE_PCI_DEVICE "intel_865pe"
 
-OBJECT_DECLARE_SIMPLE_TYPE(Intel_845PE_PCI_State, INTEL_845PE_PCI_DEVICE)
+OBJECT_DECLARE_SIMPLE_TYPE(Intel_865PE_PCI_State, INTEL_865PE_PCI_DEVICE)
 
-struct Intel_845PE_PCI_State {
+struct Intel_865PE_PCI_State {
     /*< private >*/
     PCIDevice parent_obj;
     /*< public >*/
 
     /* PAM "Shadow RAM" */
     PAMMemoryRegion pam_regions[PAM_REGIONS_COUNT];
-
-    /* PCI IRQ Table Region */
-    MemoryRegion pci_irq_table;
 
     /* SMRAM */
     MemoryRegion smram_region, high_smram_region;

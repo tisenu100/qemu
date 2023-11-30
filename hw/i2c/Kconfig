@@ -26,6 +26,10 @@ config BITBANG_I2C
     bool
     select I2C
 
+config ICS950219
+    bool
+    select SMBUS
+
 config IMX_I2C
     bool
     select I2C

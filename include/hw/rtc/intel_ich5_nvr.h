@@ -1,5 +1,5 @@
 /*
- * Intel ICH4 NVR
+ * Intel ICH5 NVR
  *
  * Copyright (c) 2003-2004 Fabrice Bellard
  * Copyright (c) 2023 Tiseno100
@@ -7,8 +7,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef HW_INTEL_ICH4_NVR_H
-#define HW_INTEL_ICH4_NVR_H
+#ifndef HW_INTEL_ICH5_NVR_H
+#define HW_INTEL_ICH5_NVR_H
 
 #include "qapi/qapi-types-machine.h"
 #include "qemu/queue.h"
@@ -17,10 +17,10 @@
 #include "qom/object.h"
 #include "sysemu/block-backend.h"
 
-#define TYPE_INTEL_ICH4_NVR "intel_ich4_nvr"
-OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH4_NVR_State, INTEL_ICH4_NVR)
+#define TYPE_INTEL_ICH5_NVR "intel_ich5_nvr"
+OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH5_NVR_State, INTEL_ICH5_NVR)
 
-struct Intel_ICH4_NVR_State {
+struct Intel_ICH5_NVR_State {
     ISADevice parent_obj;
 
     /* Qemu RTC Stuff */
@@ -59,14 +59,14 @@ struct Intel_ICH4_NVR_State {
     bool l128lock;
     bool u128lock;
 
-    QLIST_ENTRY(Intel_ICH4_NVR_State) link;
+    QLIST_ENTRY(Intel_ICH5_NVR_State) link;
 };
 
 #define RTC_ISA_IRQ 8
 
-Intel_ICH4_NVR_State *intel_ich4_nvr_init(ISABus *bus, int base_year, qemu_irq intercept_irq);
-void intel_ich4_nvr_write_cmos(Intel_ICH4_NVR_State *s, int addr, int val);
-int intel_ich4_nvr_read_cmos(Intel_ICH4_NVR_State *s, int addr);
+Intel_ICH5_NVR_State *intel_ich5_nvr_init(ISABus *bus, int base_year, qemu_irq intercept_irq);
+void intel_ich5_nvr_write_cmos(Intel_ICH5_NVR_State *s, int addr, int val);
+int intel_ich5_nvr_read_cmos(Intel_ICH5_NVR_State *s, int addr);
 void qmp_rtc_reset_reinjection_new(Error **errp);
 
-#endif /* HW_INTEL_ICH4_NVR_H */
+#endif /* HW_INTEL_ICH5_NVR_H */

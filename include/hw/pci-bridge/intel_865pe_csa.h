@@ -1,5 +1,5 @@
 /*
- * Intel 845PE AGP Bridge
+ * Intel 865PE CSA Bridge
  *
  * Copyright (c) 2023 Tiseno100
  * 
@@ -22,19 +22,19 @@
  * THE SOFTWARE.
  */
 
-#ifndef HW_INTEL_845PE_AGP_H
-#define HW_INTEL_845PE_AGP_H
+#ifndef HW_INTEL_865PE_CSA_H
+#define HW_INTEL_865PE_CSA_H
 
 #include "hw/pci/pci_bridge.h"
 #include "qom/object.h"
 
 
-struct Intel_845PE_AGP_State {
+struct Intel_865PE_CSA_State {
     /*< private >*/
     PCIBridge parent_obj;
 };
 
-#define TYPE_INTEL_845PE_AGP "intel-845pe-agp"
-OBJECT_DECLARE_SIMPLE_TYPE(Intel_845PE_AGP_State, INTEL_845PE_AGP)
+#define TYPE_INTEL_865PE_CSA "intel-865pe-csa"
+OBJECT_DECLARE_SIMPLE_TYPE(Intel_865PE_CSA_State, INTEL_865PE_CSA)
 
 #endif

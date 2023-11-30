@@ -2494,16 +2494,16 @@ static const X86CPUDefinition builtin_x86_defs[] = {
     },
     {
         .name = "netburst", /* Intel Pentium 4 */
-        .level = 2,
+        .level = 5,
         .vendor = CPUID_VENDOR_INTEL,
         .family = 15,
-        .model = 2,
-        .stepping = 9,
-        .features[FEAT_1_ECX] = 0x00000000, /* 0x0000441d */
+        .model = 3,
+        .stepping = 4,
+        .features[FEAT_1_ECX] = 0x00000001, /* 0x0000441d */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
-        .xlevel = 0x80000004,
+        .xlevel = 0x80000008,
 //        .cache_info = &netburst_cache_info,
-        .model_id = "Intel(R) Pentium(R) 4 CPU 3.40GHz",
+        .model_id = "Intel(R) Celeron(R) D CPU 320 2.40GHz",
     },
     {
         .name = "athlon",

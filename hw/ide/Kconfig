@@ -20,7 +20,7 @@ config IDE_PIIX
     select IDE_PCI
     select IDE_QDEV
 
-config IDE_INTEL_ICH4
+config IDE_INTEL_ICH5
     bool
     select IDE_PCI
     select IDE_QDEV

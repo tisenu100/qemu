@@ -1,8 +1,8 @@
 /*
- * Intel ICH4 Hub to PCI Bridge
+ * ICS950219 Programmable Timing Hub for P4
  *
  * Copyright (c) 2023 Tiseno100
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -22,19 +22,12 @@
  * THE SOFTWARE.
  */
 
-#ifndef HW_INTEL_ICH4_HUB_H
-#define HW_INTEL_ICH4_HUB_H
+#ifndef HW_ICS950219_H
+#define HW_ICS950219_H
 
-#include "hw/pci/pci_bridge.h"
-#include "qom/object.h"
+#include "exec/cpu-common.h"
+#include "hw/i2c/i2c.h"
 
-
-struct Intel_ICH4_Hub_State {
-    /*< private >*/
-    PCIBridge parent_obj;
-};
-
-#define TYPE_INTEL_ICH4_HUB "intel-ich4-hub"
-OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH4_Hub_State, INTEL_ICH4_HUB)
+void ics950219_init(I2CBus *bus);
 
 #endif

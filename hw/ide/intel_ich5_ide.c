@@ -1,5 +1,5 @@
 /*
- * Intel ICH4 IDE Controller
+ * Intel ICH5 IDE Controller
  *
  * Copyright (c) 2003 Fabrice Bellard
  * Copyright (c) 2006 Openedhand Ltd.
@@ -29,7 +29,7 @@
  */
 
 /*
-    This is just Qemu's PIIX IDE Controller made to satisfy Intel ICH4 standards
+    This is just Qemu's PIIX IDE Controller made to satisfy Intel ICH5 standards
 */
 
 #include "qemu/osdep.h"
@@ -105,7 +105,7 @@ static void bmdma_setup_bar(PCIIDEState *d)
     }
 }
 
-static void intel_ich4_ide_reset(DeviceState *s)
+static void intel_ich5_ide_reset(DeviceState *s)
 {
     PCIIDEState *d = PCI_IDE(s);
     PCIDevice *dev = PCI_DEVICE(d);
@@ -116,6 +116,7 @@ static void intel_ich4_ide_reset(DeviceState *s)
 
     dev->config[0x06] = 0x80;
     dev->config[0x07] = 0x02;
+    dev->config[0x09] = 0x8a;
     dev->config[0x10] = 0x01;
     dev->config[0x14] = 0x01;
     dev->config[0x18] = 0x01;
@@ -124,18 +125,18 @@ static void intel_ich4_ide_reset(DeviceState *s)
     dev->config[0x3d] = 0x01;
 }
 
-static bool intel_ich4_ide_start_drive(PCIIDEState *d, int control_port, int status_port, int irq, int drive_num, Error **errp)
+static bool intel_ich5_ide_start_drive(PCIIDEState *d, int control_port, int status_port, int irq, int drive_num, Error **errp)
 {
     ide_bus_init(&d->bus[drive_num], sizeof(d->bus[drive_num]), DEVICE(d), drive_num, 2);
     int device = ide_init_ioport(&d->bus[drive_num], NULL, control_port, status_port);
 
     /* Qemu sanity check. It ain't acutally needed */
     if (device) {
-        error_setg_errno(errp, -device, "Intel ICH4 IDE: Couldn't configure drive %s on port 0x%u\n", object_get_typename(OBJECT(d)), control_port);
+        error_setg_errno(errp, -device, "Intel ICH5 IDE: Couldn't configure drive %s on port 0x%u\n", object_get_typename(OBJECT(d)), control_port);
         return false;
     }
 
-    qemu_printf("Intel ICH4 IDE: Drive %d formed on Port 0x%03x, Status 0x%03x\n", drive_num, control_port, status_port);
+    qemu_printf("Intel ICH5 IDE: Drive %d formed on Port 0x%03x, Status 0x%03x\n", drive_num, control_port, status_port);
 
     ide_bus_init_output_irq(&d->bus[drive_num], isa_get_irq(NULL, irq));
 
@@ -146,14 +147,14 @@ static bool intel_ich4_ide_start_drive(PCIIDEState *d, int control_port, int sta
 }
 
 /*
-static void intel_ich4_ide_remap(int addr, int val, PCIDevice *dev)
+static void intel_ich5_ide_remap(int addr, int val, PCIDevice *dev)
 {
     PCIIDEState *d = PCI_IDE(dev);
 }
 */
 
 
-static void intel_ich4_bm_remap(int msb, int lsb, int en, PCIDevice *dev)
+static void intel_ich5_bm_remap(int msb, int lsb, int en, PCIDevice *dev)
 {
     PCIIDEState *d = PCI_IDE(dev);
 
@@ -163,20 +164,20 @@ static void intel_ich4_bm_remap(int msb, int lsb, int en, PCIDevice *dev)
     memory_region_set_enabled(&d->bmdma_bar, !!en);
     memory_region_set_address(&d->bmdma_bar, bm_addr);
     memory_region_transaction_commit();
-
-    qemu_printf("Intel ICH4 IDE: Bus Master Base updated to 0x%04x\n", bm_addr);
 }
 
 
 /*
-static void intel_ich4_ide_control(PCIDevice *dev)
+static void intel_ich5_ide_control(PCIDevice *dev)
 {
     PCIIDEState *d = PCI_IDE(dev);
 }
 */
 
-static void intel_ich4_ide_write(PCIDevice *dev, uint32_t address, uint32_t val, int len)
+static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
+    pci_default_write_config(dev, address, val, len);
+
     for(int i = 0; i < len; i++){
         int ro_only = 0;
 
@@ -187,14 +188,17 @@ static void intel_ich4_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
                 new_val = new_val & 0x07;
             break;
 
+            case 0x05:
+                new_val = new_val & 0x04;
+            break;
+
             case 0x07:
                 new_val &= ~(new_val & 0x28);
-                new_val |= 0x02;
             break;
 
             case 0x09:
                 new_val = new_val & 0x1f;
-                new_val |= 0x80;
+                new_val |= 0x8a;
             break;
 
             case 0x10:
@@ -237,7 +241,7 @@ static void intel_ich4_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
             break;
 
             case 0x55:
-                new_val = new_val & 0xf4;
+                new_val = new_val & 0xf0;
             break;
 
             case 0x56:
@@ -261,9 +265,7 @@ static void intel_ich4_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
         }
 
         if(!ro_only) {
-            pci_default_write_config(dev, address, val, len);
             dev->config[address + i] = new_val;
-            qemu_printf("Intel ICH4 IDE: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
     }
 
@@ -271,53 +273,52 @@ static void intel_ich4_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
         case 0x04:
         case 0x20:
         case 0x21:
-            intel_ich4_bm_remap(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 4, dev);
+            intel_ich5_bm_remap(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 4, dev);
         break;
     }
 }
 
-static void intel_ich4_ide_realize(PCIDevice *dev, Error **errp)
+static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
 {
     PCIIDEState *d = PCI_IDE(dev);
 
-    qemu_printf("Intel ICH4 IDE: I got realized!\n");
+    qemu_printf("Intel ICH5 IDE: I got realized!\n");
 
     /* Prepare the Bus Master Capabilities */
     bmdma_setup_bar(d);
     pci_register_bar(dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &d->bmdma_bar);
-    qemu_printf("Intel ICH4 IDE: Bus Mastering has been set\n");
+    qemu_printf("Intel ICH5 IDE: Bus Mastering has been set\n");
 
     /* Master & Slave drives */
-    intel_ich4_ide_start_drive(d, 0x1f0, 0x3f6, 14, 0, errp); /* Primary */
-    intel_ich4_ide_start_drive(d, 0x170, 0x376, 15, 1, errp); /* Slave */
+    intel_ich5_ide_start_drive(d, 0x1f0, 0x3f6, 14, 0, errp); /* Primary */
+    intel_ich5_ide_start_drive(d, 0x170, 0x376, 15, 1, errp); /* Slave */
 
-    qemu_printf("Intel ICH4 IDE: IDE Drives have been set\n");
+    qemu_printf("Intel ICH5 IDE: IDE Drives have been set\n");
 }
 
 static void pci_piix_ide_exitfn(PCIDevice *dev)
 {
     PCIIDEState *d = PCI_IDE(dev);
-    unsigned i;
 
-    for (i = 0; i < 2; ++i) {
+    for (int i = 0; i < 2; ++i) {
         memory_region_del_subregion(&d->bmdma_bar, &d->bmdma[i].extra_io);
         memory_region_del_subregion(&d->bmdma_bar, &d->bmdma[i].addr_ioport);
     }
 }
 
-static void intel_ich4_ide_class_init(ObjectClass *klass, void *data)
+static void intel_ich5_ide_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
 
-    dc->reset = intel_ich4_ide_reset;
+    dc->reset = intel_ich5_ide_reset;
     dc->vmsd = &vmstate_ide_pci;
-    k->config_write = intel_ich4_ide_write;
+    k->config_write = intel_ich5_ide_write;
     k->config_read = pci_default_read_config;
-    k->realize = intel_ich4_ide_realize;
+    k->realize = intel_ich5_ide_realize;
     k->exit = pci_piix_ide_exitfn;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
-    k->device_id = PCI_DEVICE_ID_INTEL_ICH4_IDE;
+    k->device_id = PCI_DEVICE_ID_INTEL_ICH5_IDE;
     k->class_id = PCI_CLASS_STORAGE_IDE;
     k->revision = 0x02;
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
@@ -325,15 +326,15 @@ static void intel_ich4_ide_class_init(ObjectClass *klass, void *data)
     dc->user_creatable = false;
 }
 
-static const TypeInfo intel_ich4_ide_info = {
-    .name          = TYPE_INTEL_ICH4_IDE,
+static const TypeInfo intel_ich5_ide_info = {
+    .name          = TYPE_INTEL_ICH5_IDE,
     .parent        = TYPE_PCI_IDE,
-    .class_init    = intel_ich4_ide_class_init,
+    .class_init    = intel_ich5_ide_class_init,
 };
 
-static void intel_ich4_ide_register_types(void)
+static void intel_ich5_ide_register_types(void)
 {
-    type_register_static(&intel_ich4_ide_info);
+    type_register_static(&intel_ich5_ide_info);
 }
 
-type_init(intel_ich4_ide_register_types)
+type_init(intel_ich5_ide_register_types)

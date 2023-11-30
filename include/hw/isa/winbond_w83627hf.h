@@ -41,9 +41,4 @@ typedef struct WinbondState {
     SerialState uart[2];
 } WinbondState;
 
-/* Links Qemu's FDC to the Winbond */
-void winbond_link_fdc(WinbondState *sio, FDCtrl fdc);
-void winbond_link_lpt(WinbondState *sio, ParallelState lpt);
-void winbond_link_uart(WinbondState *sio, SerialState uart, int i);
-
 #endif /* WINBOND_H */

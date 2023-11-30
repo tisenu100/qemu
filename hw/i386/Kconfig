@@ -78,19 +78,22 @@ config I440FX
     select SMBIOS
     select FW_CFG_DMA
 
-config INTEL_ICH4
+config INTEL_ICH5
     bool
     imply VMPORT
     imply VMMOUSE
-    select PCI_INTEL_845PE
-    select AGP_INTEL_845PE
-    select ACPI_INTEL_ICH4
-    select IDE_INTEL_ICH4
-    select NVR_INTEL_ICH4
-    select HUB_INTEL_ICH4
+    select PCI_INTEL_865PE
+    select AGP_INTEL_865PE
+    select CSA_INTEL_865PE
+    select OVF_INTEL_865PE
+    select HUB_INTEL_ICH5
+    select LPC_INTEL_ICH5
+    select ACPI_INTEL_ICH5
+    select IDE_INTEL_ICH5
+    select NVR_INTEL_ICH5
+    select ICS950219
     select PC_PCI
     select PC_ACPI
-    select INTEL_ICH4
     select DIMM
 
 config ISAPC

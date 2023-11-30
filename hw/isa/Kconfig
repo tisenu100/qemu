@@ -44,7 +44,7 @@ config PIIX
     select MC146818RTC
     select USB_UHCI
 
-config INTEL_ICH4
+config LPC_INTEL_ICH5
     bool
     select I8254
     select I8257
