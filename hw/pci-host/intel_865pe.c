@@ -464,11 +464,9 @@ static void intel_865pe_reset(DeviceState *s)
 static void intel_865pe_pcihost_realize(DeviceState *dev, Error **errp)
 {
     ERRP_GUARD();
-    qemu_printf("Intel 865PE MCH: I got realized\n");
     Intel_865PE_State *s = INTEL_865PE_HOST_BRIDGE(dev);
     PCIHostState *phb = PCI_HOST_BRIDGE(dev);
 
-    qemu_printf("Intel 865PE MCH: PCI bus was formed\n");
     PCIBus *pci_bus = pci_root_bus_new(dev, NULL, s->pci_address_space, s->io_memory, 0, TYPE_PCI_BUS);
     phb->bus = pci_bus;
 
@@ -486,17 +484,12 @@ static void intel_865pe_pcihost_realize(DeviceState *dev, Error **errp)
     /* Qemu sets Port CF8h(Config Address Registers) as coalesced pio */
     memory_region_set_flush_coalesced(&phb->data_mem);
     memory_region_add_coalescing(&phb->conf_mem, 0, 4);
-    qemu_printf("Intel 865PE MCH: PCI bus is listening at ports 0xcf8h\n");
-
-    qemu_printf("Intel 865PE MCH: PCI bus has been formed\n");
 
     /* Setup the addressing of the I/O APIC */
     range_set_bounds(&s->pci_hole, s->below_4g_mem_size, IO_APIC_DEFAULT_ADDRESS - 1);
-    qemu_printf("Intel 865PE MCH: I/O APIC Memory\n");
 
     /* Setup PCI memory mapping */
     pc_pci_as_mapping_init(s->system_memory, s->pci_address_space);
-    qemu_printf("Intel 865PE MCH: PCI Memory Mapping initialization complete!\n");
 
     /* If the SMRAM region is disabled then allow it to be seen and accessed */
     memory_region_init_alias(&f->smram_region, OBJECT(f), "smram-region", s->pci_address_space, 0xa0000, 0x20000);
@@ -505,7 +498,6 @@ static void intel_865pe_pcihost_realize(DeviceState *dev, Error **errp)
     memory_region_init_alias(&f->high_smram_region, OBJECT(f), "high-smram-region", s->ram_memory, 0xfeda0000, 0x20000);
     memory_region_add_subregion_overlap(s->system_memory, 0xfeda0000, &f->high_smram_region, 1);
     memory_region_set_enabled(&f->high_smram_region, true);
-    qemu_printf("Intel 865PE MCH: SMRAM Regions are up\n");
 
     /* SMRAM as seen by SMM CPUs */
     memory_region_init(&f->smram, OBJECT(f), "smram", 4 * GiB);
@@ -527,16 +519,13 @@ static void intel_865pe_pcihost_realize(DeviceState *dev, Error **errp)
     memory_region_add_subregion(&f->smram, 0xfeda0000, &f->high_smram);
 
     object_property_add_const_link(qdev_get_machine(), "smram", OBJECT(&f->smram));
-    qemu_printf("Intel 865PE MCH: SMRAM Regions are set\n");
 
     /* Start the PAM. This is just Shadow RAM. Qemu has it's own PAM implementation. We just follow behind as Intel 865PE is no different. */
     init_pam(&f->pam_regions[0], OBJECT(f), s->ram_memory, s->system_memory, s->pci_address_space, PAM_BIOS_BASE, PAM_BIOS_SIZE);
-    qemu_printf("Intel 865PE MCH: PAM Region 0x%05x is being prepared\n", PAM_BIOS_BASE);
     for (unsigned i = 0; i < ARRAY_SIZE(f->pam_regions) - 1; ++i) {
         init_pam(&f->pam_regions[i + 1], OBJECT(f), s->ram_memory,
                  s->system_memory, s->pci_address_space,
                  PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE, PAM_EXPAN_SIZE);
-        qemu_printf("Intel 865PE MCH: PAM Region 0x%05x is being prepared\n", PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE);
     }
 
     intel_865pe_pam(f);

@@ -136,8 +136,6 @@ static bool intel_ich5_ide_start_drive(PCIIDEState *d, int control_port, int sta
         return false;
     }
 
-    qemu_printf("Intel ICH5 IDE: Drive %d formed on Port 0x%03x, Status 0x%03x\n", drive_num, control_port, status_port);
-
     ide_bus_init_output_irq(&d->bus[drive_num], isa_get_irq(NULL, irq));
 
     bmdma_init(&d->bus[drive_num], &d->bmdma[drive_num], d);
@@ -282,18 +280,13 @@ static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
 {
     PCIIDEState *d = PCI_IDE(dev);
 
-    qemu_printf("Intel ICH5 IDE: I got realized!\n");
-
     /* Prepare the Bus Master Capabilities */
     bmdma_setup_bar(d);
     pci_register_bar(dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &d->bmdma_bar);
-    qemu_printf("Intel ICH5 IDE: Bus Mastering has been set\n");
 
     /* Master & Slave drives */
     intel_ich5_ide_start_drive(d, 0x1f0, 0x3f6, 14, 0, errp); /* Primary */
     intel_ich5_ide_start_drive(d, 0x170, 0x376, 15, 1, errp); /* Slave */
-
-    qemu_printf("Intel ICH5 IDE: IDE Drives have been set\n");
 }
 
 static void pci_piix_ide_exitfn(PCIDevice *dev)

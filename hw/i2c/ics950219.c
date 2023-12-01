@@ -69,21 +69,6 @@ static uint8_t ics950219_read(SMBusDevice *dev)
             d->read_state++;
         break;
 
-/*
-        case 1:
-            addr = d->n + d->regs[0x08] - 1;
-            if(addr > 0x17)
-                val = 0xff;
-            else
-                val = d->regs[addr];
-            qemu_printf("ICS: Reading Byte Addr 0x%02x N+X-1 0x%02x\n", addr, val);
-
-            if(d->regs[0x08] == 0)
-                d->read_state = 0;
-            else
-                d->read_state++;
-        break;
-*/
         case 1:
             addr = d->loc + d->read_counter - 1;
             if(addr > 0x17)
@@ -91,7 +76,6 @@ static uint8_t ics950219_read(SMBusDevice *dev)
             else
                 val = d->regs[addr];
 
-            qemu_printf("ICS: Reading Byte Addr 0x%02x 0x%02x\n", addr, val);
             d->read_counter++;
 
             if(d->read_counter == d->regs[0x08]){
@@ -131,9 +115,8 @@ static int ics950219_write(SMBusDevice *dev, uint8_t *buf, uint8_t len)
                 uint8_t addr = d->loc + d->counter; /* Location Given + Counted */
 
                 if(addr > 0x17) /* In case a board uses a incompatible ICS chip it may write the unknown registers */
-                    qemu_printf("ICS: Buffer Overflow 0x%02x is invalid. Are you using another ICS chip?\n", addr);
+                    qemu_printf("ICS: Buffer Overflow 0x%02x is invalid. Are you using another clock chip?\n", addr);
                 else {
-                    qemu_printf("ICS: Writing %02x to %02x remaining %d\n", buf[i], addr, d->n);
                     d->regs[addr] = buf[i]; /* Normally there are reserved bits & ro bits. We speculate BIOS awareness on that */
                 }
 

@@ -431,6 +431,9 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     Intel_ICH5_LPC_State *d = INTEL_ICH5_LPC(s);
     PCIDevice *dev = PCI_DEVICE(d);
 
+    for(int i = 0x40; i < 0xf3; i++)
+        dev->config[i] = 0x00;
+
     dev->config[0x04] = 0x0f;
     dev->config[0x06] = 0x80;
     dev->config[0x07] = 0x02;
@@ -445,6 +448,7 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     dev->config[0x69] = 0x80;
     dev->config[0x6a] = 0x80;
     dev->config[0x6b] = 0x80;
+    dev->config[0x90] = 0x00;
     dev->config[0xa8] = 0x0d;
     dev->config[0xd0] = 0x04;
     dev->config[0xe3] = 0xff;
@@ -549,10 +553,7 @@ static void intel_ich5_realize(PCIDevice *dev, Error **errp)
     Intel_ICH5_LPC_State *d = INTEL_ICH5_LPC(dev);
     ISABus *isa_bus;
 
-    qemu_printf("Intel ICH5 LPC: I got realized!\n");
-
     /* Form the LPC Bus */
-    qemu_printf("Intel ICH5 LPC: LPC bus ready\n");
     isa_bus = isa_bus_new(DEVICE(d), pci_address_space(dev), pci_address_space_io(dev), errp);
     if (!isa_bus) {
         qemu_printf("Intel ICH5 LPC: Failed to mount the LPC bus!\n");
@@ -562,14 +563,12 @@ static void intel_ich5_realize(PCIDevice *dev, Error **errp)
     /* PIIX Compatible Reset Port */
     memory_region_init_io(&d->rcr_mem, OBJECT(dev), &rcr_ops, d, "piix-compatible-reset-control", 1);
     memory_region_add_subregion_overlap(pci_address_space_io(dev), 0xcf9, &d->rcr_mem, 1);
-    qemu_printf("Reset Control: Mounted on port 0xcf9h\n");
 
     /* Connect the IRQs */
     isa_bus_register_input_irqs(isa_bus, d->lpc_irqs_in);
 
     /* Prepare the DMA controller */
     i8257_dma_init(isa_bus, 0);
-    qemu_printf("Intel ICH5 LPC: DMA Controller is up\n");
 
     /* NVR */
     qdev_prop_set_int32(DEVICE(&d->rtc), "base_year", 2000);
@@ -577,7 +576,6 @@ static void intel_ich5_realize(PCIDevice *dev, Error **errp)
         return;
     uint32_t irq = object_property_get_uint(OBJECT(&d->rtc), "irq", &error_fatal);
     isa_connect_gpio_out(ISA_DEVICE(&d->rtc), 0, irq);
-    qemu_printf("Intel ICH5 LPC: NVR has been sanitized\n");
 }
 
 static void intel_ich5_lpc_init(Object *obj)

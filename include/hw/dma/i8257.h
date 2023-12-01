@@ -30,6 +30,8 @@ struct I8257State {
     int32_t pageh_base;
     int32_t dshift;
 
+    uint8_t res_port; /* A fake page port meant to satisfy AMIBIOS */
+
     uint8_t status;
     uint8_t command;
     uint8_t mask;

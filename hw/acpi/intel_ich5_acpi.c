@@ -67,7 +67,7 @@ static void intel_ich5_provoke_smi(Intel_ICH5_ACPI_State *s)
 {
     if (s->smi_irq) { /* The SMI Interrupt is set the the pc_init code */
         qemu_printf("Intel ICH5 ACPI: An SMI interrupt was provoked!\n");
-        qemu_irq_raise(s->smi_irq);
+//        qemu_irq_raise(s->smi_irq);
     }
 }
 
@@ -496,9 +496,6 @@ static void intel_ich5_acpi_init(Object *obj)
 static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
 {
     Intel_ICH5_ACPI_State *s = INTEL_ICH5_ACPI(dev);
-
-    qemu_printf("Intel ICH5 ACPI: I got realized\n");
-    qemu_printf("Intel ICH5 SMBus: I got realized\n");
 
     /* SMBus */
     pm_smbus_init(DEVICE(dev), &s->smb, true);
