@@ -23,23 +23,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *
- * References:
- *  [1] 82371FB (PIIX) AND 82371SB (PIIX3) PCI ISA IDE XCELERATOR,
- *      290550-002, Intel Corporation, April 1997.
  */
 
-/*
-    This is just Qemu's PIIX IDE Controller made to satisfy Intel ICH5 standards
-*/
-
 #include "qemu/osdep.h"
+#include "qemu/qemu-print.h"
 #include "qapi/error.h"
 #include "hw/pci/pci.h"
-#include "hw/ide/piix.h"
 #include "hw/ide/pci.h"
 #include "trace.h"
 
-#include "qemu/qemu-print.h"
+#include "hw/ide/piix.h"
 
 static uint64_t bmdma_read(void *opaque, hwaddr addr, unsigned size)
 {
@@ -110,10 +103,6 @@ static void intel_ich5_ide_reset(DeviceState *s)
     PCIIDEState *d = PCI_IDE(s);
     PCIDevice *dev = PCI_DEVICE(d);
 
-    for (int i = 0; i < 2; i++) {
-        ide_bus_reset(&d->bus[i]);
-    }
-
     dev->config[0x06] = 0x80;
     dev->config[0x07] = 0x02;
     dev->config[0x09] = 0x8a;
@@ -123,57 +112,17 @@ static void intel_ich5_ide_reset(DeviceState *s)
     dev->config[0x1c] = 0x01;
     dev->config[0x20] = 0x01;
     dev->config[0x3d] = 0x01;
+
+    ide_bus_reset(&d->bus[0]);
+    ide_bus_reset(&d->bus[1]);
+
+    pci_ide_update_mode(d);
 }
-
-static bool intel_ich5_ide_start_drive(PCIIDEState *d, int control_port, int status_port, int irq, int drive_num, Error **errp)
-{
-    ide_bus_init(&d->bus[drive_num], sizeof(d->bus[drive_num]), DEVICE(d), drive_num, 2);
-    int device = ide_init_ioport(&d->bus[drive_num], NULL, control_port, status_port);
-
-    /* Qemu sanity check. It ain't acutally needed */
-    if (device) {
-        error_setg_errno(errp, -device, "Intel ICH5 IDE: Couldn't configure drive %s on port 0x%u\n", object_get_typename(OBJECT(d)), control_port);
-        return false;
-    }
-
-    ide_bus_init_output_irq(&d->bus[drive_num], isa_get_irq(NULL, irq));
-
-    bmdma_init(&d->bus[drive_num], &d->bmdma[drive_num], d);
-    ide_bus_register_restart_cb(&d->bus[drive_num]);
-
-    return true;
-}
-
-/*
-static void intel_ich5_ide_remap(int addr, int val, PCIDevice *dev)
-{
-    PCIIDEState *d = PCI_IDE(dev);
-}
-*/
-
-
-static void intel_ich5_bm_remap(int msb, int lsb, int en, PCIDevice *dev)
-{
-    PCIIDEState *d = PCI_IDE(dev);
-
-    int bm_addr = (msb << 8) | (lsb & 0xfe);
-
-    memory_region_transaction_begin();
-    memory_region_set_enabled(&d->bmdma_bar, !!en);
-    memory_region_set_address(&d->bmdma_bar, bm_addr);
-    memory_region_transaction_commit();
-}
-
-
-/*
-static void intel_ich5_ide_control(PCIDevice *dev)
-{
-    PCIIDEState *d = PCI_IDE(dev);
-}
-*/
 
 static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
+    PCIIDEState *s = PCI_IDE(dev);
+
     pci_default_write_config(dev, address, val, len);
 
     for(int i = 0; i < len; i++){
@@ -264,36 +213,54 @@ static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
 
         if(!ro_only) {
             dev->config[address + i] = new_val;
+            qemu_printf("Intel ICH5 IDE: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
     }
 
-    switch(address) {
-        case 0x04:
-        case 0x20:
-        case 0x21:
-            intel_ich5_bm_remap(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 4, dev);
-        break;
-    }
+    if(address == 0x09) /* Whenever we update states. Call in the PCI IDE Handler */
+            pci_ide_update_mode(s);   
 }
 
 static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
 {
     PCIIDEState *d = PCI_IDE(dev);
+    DeviceState *s = DEVICE(dev);
 
-    /* Prepare the Bus Master Capabilities */
+    /* Primary Drives */
+
+    memory_region_init_io(&d->data_bar[0], OBJECT(d), &pci_ide_data_le_ops, &d->bus[0], "intel-ich5-ide-primary-control", 8);
+    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_SPACE_IO, &d->data_bar[0]);
+
+    memory_region_init_io(&d->cmd_bar[0], OBJECT(d), &pci_ide_cmd_le_ops, &d->bus[0], "intel-ich5-ide-command-control", 4);
+    pci_register_bar(dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &d->cmd_bar[0]);
+
+    ide_bus_init(&d->bus[0], sizeof(d->bus[0]), s, 0, 2);
+    ide_bus_init_output_irq(&d->bus[0], isa_get_irq(NULL, 14));
+    bmdma_init(&d->bus[0], &d->bmdma[0], d);
+    ide_bus_register_restart_cb(&d->bus[0]);
+
+    /* Secondary Drives */
+    memory_region_init_io(&d->data_bar[1], OBJECT(d), &pci_ide_data_le_ops, &d->bus[1], "intel-ich5-ide-slave-control", 8);
+    pci_register_bar(dev, 2, PCI_BASE_ADDRESS_SPACE_IO, &d->data_bar[1]);
+
+    memory_region_init_io(&d->cmd_bar[1], OBJECT(d), &pci_ide_cmd_le_ops, &d->bus[1], "intel-ich5-ide-slave-control", 4);
+    pci_register_bar(dev, 3, PCI_BASE_ADDRESS_SPACE_IO, &d->cmd_bar[1]);
+
+    ide_bus_init(&d->bus[1], sizeof(d->bus[1]), s, 1, 2);
+    ide_bus_init_output_irq(&d->bus[1], isa_get_irq(NULL, 15));
+    bmdma_init(&d->bus[1], &d->bmdma[1], d);
+    ide_bus_register_restart_cb(&d->bus[1]);
+
+    /* Bus Mastering */
     bmdma_setup_bar(d);
     pci_register_bar(dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &d->bmdma_bar);
-
-    /* Master & Slave drives */
-    intel_ich5_ide_start_drive(d, 0x1f0, 0x3f6, 14, 0, errp); /* Primary */
-    intel_ich5_ide_start_drive(d, 0x170, 0x376, 15, 1, errp); /* Slave */
 }
 
 static void pci_piix_ide_exitfn(PCIDevice *dev)
 {
     PCIIDEState *d = PCI_IDE(dev);
 
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 2; i++) {
         memory_region_del_subregion(&d->bmdma_bar, &d->bmdma[i].extra_io);
         memory_region_del_subregion(&d->bmdma_bar, &d->bmdma[i].addr_ioport);
     }
