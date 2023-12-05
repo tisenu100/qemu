@@ -231,7 +231,7 @@ static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
     memory_region_init_io(&d->data_bar[0], OBJECT(d), &pci_ide_data_le_ops, &d->bus[0], "intel-ich5-ide-primary-control", 8);
     pci_register_bar(dev, 0, PCI_BASE_ADDRESS_SPACE_IO, &d->data_bar[0]);
 
-    memory_region_init_io(&d->cmd_bar[0], OBJECT(d), &pci_ide_cmd_le_ops, &d->bus[0], "intel-ich5-ide-command-control", 4);
+    memory_region_init_io(&d->cmd_bar[0], OBJECT(d), &pci_ide_cmd_le_ops, &d->bus[0], "intel-ich5-ide-primary-command", 4);
     pci_register_bar(dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &d->cmd_bar[0]);
 
     ide_bus_init(&d->bus[0], sizeof(d->bus[0]), s, 0, 2);
@@ -240,10 +240,10 @@ static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
     ide_bus_register_restart_cb(&d->bus[0]);
 
     /* Secondary Drives */
-    memory_region_init_io(&d->data_bar[1], OBJECT(d), &pci_ide_data_le_ops, &d->bus[1], "intel-ich5-ide-slave-control", 8);
+    memory_region_init_io(&d->data_bar[1], OBJECT(d), &pci_ide_data_le_ops, &d->bus[1], "intel-ich5-ide-secondary-control", 8);
     pci_register_bar(dev, 2, PCI_BASE_ADDRESS_SPACE_IO, &d->data_bar[1]);
 
-    memory_region_init_io(&d->cmd_bar[1], OBJECT(d), &pci_ide_cmd_le_ops, &d->bus[1], "intel-ich5-ide-slave-control", 4);
+    memory_region_init_io(&d->cmd_bar[1], OBJECT(d), &pci_ide_cmd_le_ops, &d->bus[1], "intel-ich5-ide-secondary-command", 4);
     pci_register_bar(dev, 3, PCI_BASE_ADDRESS_SPACE_IO, &d->cmd_bar[1]);
 
     ide_bus_init(&d->bus[1], sizeof(d->bus[1]), s, 1, 2);
