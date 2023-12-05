@@ -1,6 +1,9 @@
 /*
- * Copyright (C) 2006 InnoTek Systemberatung GmbH
+ * Intel ICH5 AC97
  *
+ * Copyright (C) 2006 InnoTek Systemberatung GmbH
+ * Copyright (C) 2023 Tiseno100
+ * 
  * This file is part of VirtualBox Open Source Edition (OSE), as
  * available from http://www.virtualbox.org. This file is free software;
  * you can redistribute it and/or modify it under the terms of the GNU
@@ -17,8 +20,8 @@
  * GNU GPL, version 2 or (at your option) any later version.
  */
 
-#ifndef AC97_H
-#define AC97_H
+#ifndef INTEL_ICH5_AC97_H
+#define INTEL_ICH5_AC97_H
 
 enum {
     AC97_Reset                     = 0x00,
@@ -39,7 +42,7 @@ enum {
     AC97_Record_Gain_Mic_Mute      = 0x1E,
     AC97_General_Purpose           = 0x20,
     AC97_3D_Control                = 0x22,
-    AC97_AC_97_RESERVED            = 0x24,
+    AC97_Audio_Int_and_Paging      = 0x24,
     AC97_Powerdown_Ctrl_Stat       = 0x26,
     AC97_Extended_Audio_ID         = 0x28,
     AC97_Extended_Audio_Ctrl_Stat  = 0x2A,
@@ -50,9 +53,11 @@ enum {
     AC97_MIC_ADC_Rate              = 0x34,
     AC97_6Ch_Vol_C_LFE_Mute        = 0x36,
     AC97_6Ch_Vol_L_R_Surround_Mute = 0x38,
-    AC97_Vendor_Reserved           = 0x58,
-    AC97_Sigmatel_Analog           = 0x6c, /* We emulate a Sigmatel codec */
-    AC97_Sigmatel_Dac2Invert       = 0x6e, /* We emulate a Sigmatel codec */
+    AC97_SPDIF_Control             = 0x3a,
+    AC97_SPDIF_DAC_Volume          = 0x64,
+    AC97_SPDIF_CEN_LFE_DAC_Volume  = 0x66,
+    AC97_Multichannel              = 0x6a,
+    AC97_Extension_Control         = 0x7a,
     AC97_Vendor_ID1                = 0x7c,
     AC97_Vendor_ID2                = 0x7e
 };
@@ -62,4 +67,6 @@ enum {
 
 #define MUTE_SHIFT 15
 
-#endif /* AC97_H */
+#define TYPE_INTEL_ICH5_AC97 "intel-ich5-ac97"
+
+#endif /* INTEL_ICH5_AC97_H */

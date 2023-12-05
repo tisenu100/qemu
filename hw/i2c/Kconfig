@@ -30,6 +30,10 @@ config ICS950219
     bool
     select SMBUS
 
+config WINBOND_W83194
+    bool
+    select SMBUS
+
 config IMX_I2C
     bool
     select I2C

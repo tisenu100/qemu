@@ -52,7 +52,6 @@ static void dram_write(void *opaque, hwaddr addr, uint64_t val, unsigned width)
 {
     Intel_865PE_OVF_State *d = opaque;
     addr = addr & 0xff;
-    qemu_printf("Intel 865PE DRAM: Writing 0x%02x on 0x%02x\n", (int)val, (int)addr);
     d->regs[(int)addr] = val;
 }
 
@@ -65,21 +64,6 @@ static const MemoryRegionOps dram_ops = {
     .impl.max_access_size = 1,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
-
-static void intel_865pe_dram_remap(PCIDevice *dev)
-{
-    Intel_865PE_OVF_State *d = INTEL_865PE_OVF(dev);
-    d->dram_io_base = (dev->config[0x13] << 24) | (dev->config[0x12] << 16) | (dev->config[0x11] << 8);
-    bool enabled = !!(dev->config[0x04] & 0x02) && (d->dram_io_base != 0);
-
-    memory_region_transaction_begin();
-    memory_region_set_enabled(&d->dram, true);
-    memory_region_set_address(&d->dram, d->dram_io_base);
-    memory_region_transaction_commit();
-
-    if(enabled)
-        qemu_printf("Intel 865PE DRAM: Remapped to position 0x%08x\n", d->dram_io_base);
-}
 
 static void intel_865pe_ovf_write_config(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
@@ -120,15 +104,10 @@ static void intel_865pe_ovf_write_config(PCIDevice *dev, uint32_t address, uint3
         case 0x11:
         case 0x12:
         case 0x13:
-            intel_865pe_dram_remap(dev);
+            if(dev->config[0x04] & 2)
+                qemu_printf("Intel ICH5 DRAM: DRAM remapped at 0x%04x\n", (dev->config[0x13] << 24) | (dev->config[0x12] << 16) | (dev->config[0x11] << 8) | (dev->config[0x10] & 0xc0));
         break;
-    }
-}
-
-static void intel_865pe_ovf_reset(DeviceState *dev)
-{
-    PCIDevice *d = PCI_DEVICE(dev);
-    intel_865pe_dram_remap(d);
+    }           
 }
 
 static void intel_865pe_ovf_realize(PCIDevice *dev, Error **errp)
@@ -136,9 +115,8 @@ static void intel_865pe_ovf_realize(PCIDevice *dev, Error **errp)
     Intel_865PE_OVF_State *d = INTEL_865PE_OVF(dev);
 
     /* DRAM Handler (MMR) */
-    memory_region_init_io(&d->dram, OBJECT(d), &dram_ops, d, "intel-865pe-ovf", 0x10000);
-    memory_region_set_enabled(&d->dram, false);
-    memory_region_add_subregion(pci_address_space(dev), d->dram_io_base, &d->dram);
+    memory_region_init_io(&d->dram, OBJECT(d), &dram_ops, d, "intel-865pe-ovf", 4 * KiB);
+    pci_register_bar(dev, 0, 0, &d->dram);
 }
 
 static void intel_865pe_ovf_class_init(ObjectClass *klass, void *data)
@@ -153,7 +131,6 @@ static void intel_865pe_ovf_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_SYSTEM_OTHER;
     k->config_write = intel_865pe_ovf_write_config;
     k->config_read = pci_default_read_config;
-    dc->reset = intel_865pe_ovf_reset;
     dc->vmsd = &vmstate_pci_device;
     dc->user_creatable = false;
 }

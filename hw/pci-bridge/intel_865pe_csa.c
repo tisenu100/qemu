@@ -37,6 +37,7 @@ static void intel_865pe_csa_reset(DeviceState *dev)
 {
     PCIDevice *s = PCI_DEVICE(dev);
 
+    pci_bridge_write_config(s, 0x04, 0x01, 0x01);
     pci_bridge_write_config(s, 0x1c, 0xf0, 1);
     pci_bridge_write_config(s, 0x1e, 0x02a0, 2);
     pci_bridge_write_config(s, 0x20, 0xfff0, 2);

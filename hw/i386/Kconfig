@@ -90,8 +90,10 @@ config INTEL_ICH5
     select LPC_INTEL_ICH5
     select ACPI_INTEL_ICH5
     select IDE_INTEL_ICH5
+    select AC97_INTEL_ICH5
     select NVR_INTEL_ICH5
     select ICS950219
+    select WINBOND_W83194
     select PC_PCI
     select PC_ACPI
     select DIMM

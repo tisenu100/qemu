@@ -51,6 +51,9 @@ struct Intel_ICH5_LPC_State {
 
     /* The ACPI device so we can remap it's SCI & ACPI */
     Intel_ICH5_ACPI_State *acpi;
+
+    /* PCI Power Managment Registers. They cannot be reset! */
+    uint8_t pme_conf[256];
 };
 typedef struct Intel_ICH5_LPC_State Intel_ICH5_LPC_State;
 

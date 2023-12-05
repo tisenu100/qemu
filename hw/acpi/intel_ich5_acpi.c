@@ -31,6 +31,7 @@
 #include "qemu/osdep.h"
 #include "qemu/qemu-print.h"
 #include "hw/irq.h"
+#include "hw/isa/isa.h"
 #include "hw/isa/apm.h"
 #include "hw/i2c/pm_smbus.h"
 #include "hw/pci/pci.h"
@@ -67,7 +68,7 @@ static void intel_ich5_provoke_smi(Intel_ICH5_ACPI_State *s)
 {
     if (s->smi_irq) { /* The SMI Interrupt is set the the pc_init code */
         qemu_printf("Intel ICH5 ACPI: An SMI interrupt was provoked!\n");
-//        qemu_irq_raise(s->smi_irq);
+        qemu_irq_raise(s->smi_irq);
     }
 }
 
@@ -301,6 +302,74 @@ static const MemoryRegionOps intel_ich5_acpi_smi_handler_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
+/* SMI Trap Handler */
+static void smi_trap_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned width)
+{
+    Intel_ICH5_ACPI_State *s = opaque;
+    
+    s->smi_trap[addr & 1] = val;
+
+    if(addr & 1){
+        
+        memory_region_set_enabled(&s->kbc_trap, !!(val & 0x10));
+
+        if(val & 0x10)
+            qemu_printf("Intel ICH4 ACPI: SMI KBC trap was enabled\n");
+    }
+}
+
+static uint64_t smi_trap_readb(void *opaque, hwaddr addr, unsigned width)
+{
+    Intel_ICH5_ACPI_State *s = opaque;
+
+    return s->smi_trap[addr & 1];
+}
+
+static const MemoryRegionOps intel_ich5_acpi_smi_trap_ops = {
+    .read = smi_trap_readb,
+    .write = smi_trap_writeb,
+    .valid.min_access_size = 1,
+    .valid.max_access_size = 2,
+    .impl.min_access_size = 1,
+    .impl.max_access_size = 1,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
+
+/* KBC Trap */
+static void kbc_trap_writeb(void *opaque, hwaddr addr, uint64_t val, unsigned width)
+{
+    Intel_ICH5_ACPI_State *s = opaque;
+    
+    intel_ich5_provoke_smi(s);
+}
+
+static uint64_t kbc_trap_readb(void *opaque, hwaddr addr, unsigned width)
+{
+    Intel_ICH5_ACPI_State *s = opaque;
+
+    intel_ich5_provoke_smi(s);
+
+    return 0xffffffffffffffffULL;
+}
+
+static const MemoryRegionOps kbc_trap_ops = {
+    .read = kbc_trap_readb,
+    .write = kbc_trap_writeb,
+    .valid.min_access_size = 1,
+    .valid.max_access_size = 4,
+    .impl.min_access_size = 1,
+    .impl.max_access_size = 1,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
+
+void intel_ich5_acpi_mount_kbc_trap(Intel_ICH5_ACPI_State *acpi, ISABus *bus)
+{
+    memory_region_init_io(&acpi->kbc_trap, OBJECT(acpi), &kbc_trap_ops, acpi, "acpi_kbc_trap", 4);
+    memory_region_set_enabled(&acpi->kbc_trap, false);
+    memory_region_add_subregion_overlap(bus->address_space_io, 0x60, &acpi->kbc_trap, 1);
+    qemu_printf("Intel ICH5 ACPI: KBC trap was mounted on the ISA\n");
+}
+
 /* Intel ICH5 SMBus PCI Device */
 static void intel_ich5_smbus(int msb, int lsb, int en, Intel_ICH5_ACPI_State *s)
 {
@@ -523,7 +592,6 @@ static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
     s->ar.wakeup.notify = acpi_notify_wakeup;
     memory_region_init_io(&s->ar.pm1.cnt.io, memory_region_owner(&s->io), &pm1_cnt_ops, s, "acpi_pm1_cnt", 2);
     memory_region_add_subregion(&s->io, 0x04, &s->ar.pm1.cnt.io);
-
     qemu_printf("Intel ICH5 ACPI: ACPI PM Control\n");
 
     /* Timer */
@@ -540,6 +608,12 @@ static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
     memory_region_init_io(&s->smi_io, memory_region_owner(&s->io), &intel_ich5_acpi_smi_handler_ops, s, "acpi_smi", 8);
     memory_region_add_subregion(&s->io, 0x30, &s->smi_io);
     qemu_printf("Intel ICH5 ACPI: SMI Handler\n");
+
+    /* SMI Trap Handler */
+    memory_region_init_io(&s->smi_trap_io, memory_region_owner(&s->io), &intel_ich5_acpi_smi_trap_ops, s, "acpi_smi_trap", 2);
+    memory_region_add_subregion(&s->io, 0x48, &s->smi_trap_io);
+
+    qemu_printf("Intel ICH5 ACPI: SMI Trap Handler\n");
 
     qemu_printf("Intel ICH5 ACPI: ACPI has started!\n");
 

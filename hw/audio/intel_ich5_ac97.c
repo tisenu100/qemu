@@ -1,6 +1,9 @@
 /*
- * Copyright (C) 2006 InnoTek Systemberatung GmbH
+ * Intel ICH5 AC97
  *
+ * Copyright (C) 2006 InnoTek Systemberatung GmbH
+ * Copyright (C) 2023 Tiseno100
+ * 
  * This file is part of VirtualBox Open Source Edition (OSE), as
  * available from http://www.virtualbox.org. This file is free software;
  * you can redistribute it and/or modify it under the terms of the GNU
@@ -24,9 +27,10 @@
 #include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "qemu/module.h"
+#include "qemu/qemu-print.h"
 #include "sysemu/dma.h"
 #include "qom/object.h"
-#include "ac97.h"
+#include "intel_ich5_ac97.h"
 
 #define SOFT_VOLUME
 #define SR_FIFOE 16             /* rwc */
@@ -85,8 +89,8 @@
 #define BD_IOC (1 << 31)
 #define BD_BUP (1 << 30)
 
-#define TYPE_AC97 "AC97"
-OBJECT_DECLARE_SIMPLE_TYPE(AC97LinkState, AC97)
+#define TYPE_INTEL_ICH5_AC97 "intel-ich5-ac97"
+OBJECT_DECLARE_SIMPLE_TYPE(Intel_ICH5_AC97_State, INTEL_ICH5_AC97)
 
 #define REC_MASK 7
 enum {
@@ -105,7 +109,7 @@ typedef struct BD {
     uint32_t ctl_len;
 } BD;
 
-typedef struct AC97BusMasterRegs {
+typedef struct Intel_ICH5_AC97_BM_State {
     uint32_t bdbar;             /* rw 0 */
     uint8_t civ;                /* ro 0 */
     uint8_t lvi;                /* rw 0 */
@@ -115,37 +119,36 @@ typedef struct AC97BusMasterRegs {
     uint8_t cr;                 /* rw 0 */
     unsigned int bd_valid;
     BD bd;
-} AC97BusMasterRegs;
+} Intel_ICH5_AC97_BM_State;
 
-struct AC97LinkState {
+struct Intel_ICH5_AC97_State {
     PCIDevice dev;
     QEMUSoundCard card;
     uint32_t glob_cnt;
     uint32_t glob_sta;
     uint32_t cas;
     uint32_t last_samp;
-    AC97BusMasterRegs bm_regs[3];
+    Intel_ICH5_AC97_BM_State bm_regs[3];
     uint8_t mixer_data[256];
     SWVoiceIn *voice_pi;
+    SWVoiceIn *voice_p2;
     SWVoiceOut *voice_po;
+    SWVoiceOut *voice_spdif;
     SWVoiceIn *voice_mc;
+    SWVoiceIn *voice_mc2;
     int invalid_freq[3];
     uint8_t silence[128];
     int bup_flag;
     MemoryRegion io_nam;
     MemoryRegion io_nabm;
+    MemoryRegion io_mm;
+    MemoryRegion io_mb;
 };
 
 enum {
     BUP_SET = 1,
     BUP_LAST = 2
 };
-
-#ifdef DEBUG_AC97
-#define dolog(...) AUD_log("ac97", __VA_ARGS__)
-#else
-#define dolog(...)
-#endif
 
 #define MKREGS(prefix, start)                   \
 enum {                                          \
@@ -162,12 +165,19 @@ enum {
     PI_INDEX = 0,
     PO_INDEX,
     MC_INDEX,
+    CODEC_SEMAPHORE, /* Unused */
+    MC2_INDEX,
+    PI2_INDEX,
+    SPDIF_INDEX,
     LAST_INDEX
 };
 
 MKREGS(PI, PI_INDEX * 16);
 MKREGS(PO, PO_INDEX * 16);
 MKREGS(MC, MC_INDEX * 16);
+MKREGS(MC2, MC2_INDEX * 16);
+MKREGS(PI2, PI2_INDEX * 16);
+MKREGS(SPDIF, SPDIF_INDEX * 16);
 
 enum {
     GLOB_CNT = 0x2c,
@@ -181,7 +191,7 @@ static void po_callback(void *opaque, int free);
 static void pi_callback(void *opaque, int avail);
 static void mc_callback(void *opaque, int avail);
 
-static void fetch_bd(AC97LinkState *s, AC97BusMasterRegs *r)
+static void fetch_bd(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r)
 {
     uint8_t b[8];
 
@@ -190,12 +200,9 @@ static void fetch_bd(AC97LinkState *s, AC97BusMasterRegs *r)
     r->bd.addr = le32_to_cpu(*(uint32_t *) &b[0]) & ~3;
     r->bd.ctl_len = le32_to_cpu(*(uint32_t *) &b[4]);
     r->picb = r->bd.ctl_len & 0xffff;
-    dolog("bd %2d addr=0x%x ctl=0x%06x len=0x%x(%d bytes)\n",
-          r->civ, r->bd.addr, r->bd.ctl_len >> 16,
-          r->bd.ctl_len & 0xffff, (r->bd.ctl_len & 0xffff) << 1);
 }
 
-static void update_sr(AC97LinkState *s, AC97BusMasterRegs *r, uint32_t new_sr)
+static void update_sr(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r, uint32_t new_sr)
 {
     int event = 0;
     int level = 0;
@@ -222,25 +229,20 @@ static void update_sr(AC97LinkState *s, AC97BusMasterRegs *r, uint32_t new_sr)
 
     r->sr = new_sr;
 
-    dolog("IOC%d LVB%d sr=0x%x event=%d level=%d\n",
-          r->sr & SR_BCIS, r->sr & SR_LVBCI, r->sr, event, level);
-
     if (!event) {
         return;
     }
 
     if (level) {
         s->glob_sta |= masks[r - s->bm_regs];
-        dolog("set irq level=1\n");
         pci_irq_assert(&s->dev);
     } else {
         s->glob_sta &= ~masks[r - s->bm_regs];
-        dolog("set irq level=0\n");
         pci_irq_deassert(&s->dev);
     }
 }
 
-static void voice_set_active(AC97LinkState *s, int bm_index, int on)
+static void voice_set_active(Intel_ICH5_AC97_State *s, int bm_index, int on)
 {
     switch (bm_index) {
     case PI_INDEX:
@@ -256,14 +258,12 @@ static void voice_set_active(AC97LinkState *s, int bm_index, int on)
         break;
 
     default:
-        AUD_log("ac97", "invalid bm_index(%d) in voice_set_active", bm_index);
         break;
     }
 }
 
-static void reset_bm_regs(AC97LinkState *s, AC97BusMasterRegs *r)
+static void reset_bm_regs(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r)
 {
-    dolog("reset_bm_regs\n");
     r->bdbar = 0;
     r->civ = 0;
     r->lvi = 0;
@@ -278,11 +278,9 @@ static void reset_bm_regs(AC97LinkState *s, AC97BusMasterRegs *r)
     memset(s->silence, 0, sizeof(s->silence));
 }
 
-static void mixer_store(AC97LinkState *s, uint32_t i, uint16_t v)
+static void mixer_store(Intel_ICH5_AC97_State *s, uint32_t i, uint16_t v)
 {
     if (i + 2 > sizeof(s->mixer_data)) {
-        dolog("mixer_store: index %d out of bounds %zd\n",
-              i, sizeof(s->mixer_data));
         return;
     }
 
@@ -290,13 +288,11 @@ static void mixer_store(AC97LinkState *s, uint32_t i, uint16_t v)
     s->mixer_data[i + 1] = v >> 8;
 }
 
-static uint16_t mixer_load(AC97LinkState *s, uint32_t i)
+static uint16_t mixer_load(Intel_ICH5_AC97_State *s, uint32_t i)
 {
     uint16_t val = 0xffff;
 
     if (i + 2 > sizeof(s->mixer_data)) {
-        dolog("mixer_load: index %d out of bounds %zd\n",
-              i, sizeof(s->mixer_data));
     } else {
         val = s->mixer_data[i + 0] | (s->mixer_data[i + 1] << 8);
     }
@@ -304,7 +300,7 @@ static uint16_t mixer_load(AC97LinkState *s, uint32_t i)
     return val;
 }
 
-static void open_voice(AC97LinkState *s, int index, int freq)
+static void open_voice(Intel_ICH5_AC97_State *s, int index, int freq)
 {
     struct audsettings as;
 
@@ -317,36 +313,15 @@ static void open_voice(AC97LinkState *s, int index, int freq)
         s->invalid_freq[index] = 0;
         switch (index) {
         case PI_INDEX:
-            s->voice_pi = AUD_open_in(
-                &s->card,
-                s->voice_pi,
-                "ac97.pi",
-                s,
-                pi_callback,
-                &as
-                );
+            s->voice_pi = AUD_open_in(&s->card, s->voice_pi, "intel-ich5-ac97.pi", s, pi_callback, &as);
             break;
 
         case PO_INDEX:
-            s->voice_po = AUD_open_out(
-                &s->card,
-                s->voice_po,
-                "ac97.po",
-                s,
-                po_callback,
-                &as
-                );
+            s->voice_po = AUD_open_out(&s->card, s->voice_po, "intel-ich5-ac97.po", s, po_callback, &as);
             break;
 
         case MC_INDEX:
-            s->voice_mc = AUD_open_in(
-                &s->card,
-                s->voice_mc,
-                "ac97.mc",
-                s,
-                mc_callback,
-                &as
-                );
+            s->voice_mc = AUD_open_in(&s->card, s->voice_mc, "intel-ich5-ac97.mc", s, mc_callback, &as);
             break;
         }
     } else {
@@ -370,7 +345,7 @@ static void open_voice(AC97LinkState *s, int index, int freq)
     }
 }
 
-static void reset_voices(AC97LinkState *s, uint8_t active[LAST_INDEX])
+static void reset_voices(Intel_ICH5_AC97_State *s, uint8_t active[LAST_INDEX])
 {
     uint16_t freq;
 
@@ -400,15 +375,13 @@ static void get_volume(uint16_t vol, uint16_t mask, int inverse,
     }
 }
 
-static void update_combined_volume_out(AC97LinkState *s)
+static void update_combined_volume_out(Intel_ICH5_AC97_State *s)
 {
     uint8_t lvol, rvol, plvol, prvol;
     int mute, pmute;
 
-    get_volume(mixer_load(s, AC97_Master_Volume_Mute), 0x3f, 1,
-               &mute, &lvol, &rvol);
-    get_volume(mixer_load(s, AC97_PCM_Out_Volume_Mute), 0x1f, 1,
-               &pmute, &plvol, &prvol);
+    get_volume(mixer_load(s, AC97_Master_Volume_Mute), 0x1f, 0, &mute, &lvol, &rvol);
+    get_volume(mixer_load(s, AC97_PCM_Out_Volume_Mute), 0x1f, 1, &pmute, &plvol, &prvol);
 
     mute = mute | pmute;
     lvol = (lvol * plvol) / 255;
@@ -417,22 +390,21 @@ static void update_combined_volume_out(AC97LinkState *s)
     AUD_set_volume_out(s->voice_po, mute, lvol, rvol);
 }
 
-static void update_volume_in(AC97LinkState *s)
+static void update_volume_in(Intel_ICH5_AC97_State *s)
 {
     uint8_t lvol, rvol;
     int mute;
 
-    get_volume(mixer_load(s, AC97_Record_Gain_Mute), 0x0f, 0,
-               &mute, &lvol, &rvol);
+    get_volume(mixer_load(s, AC97_Record_Gain_Mute), 0x1f, 1, &mute, &lvol, &rvol);
 
     AUD_set_volume_in(s->voice_pi, mute, lvol, rvol);
 }
 
-static void set_volume(AC97LinkState *s, int index, uint32_t val)
+static void set_volume(Intel_ICH5_AC97_State *s, int index, uint32_t val)
 {
     switch (index) {
     case AC97_Master_Volume_Mute:
-        val &= 0xbf3f;
+        val &= 0x9f1f;
         mixer_store(s, index, val);
         update_combined_volume_out(s);
         break;
@@ -442,56 +414,58 @@ static void set_volume(AC97LinkState *s, int index, uint32_t val)
         update_combined_volume_out(s);
         break;
     case AC97_Record_Gain_Mute:
-        val &= 0x8f0f;
+        val &= 0x805f;
         mixer_store(s, index, val);
         update_volume_in(s);
         break;
     }
 }
 
-static void record_select(AC97LinkState *s, uint32_t val)
+static void record_select(Intel_ICH5_AC97_State *s, uint32_t val)
 {
     uint8_t rs = val & REC_MASK;
     uint8_t ls = (val >> 8) & REC_MASK;
     mixer_store(s, AC97_Record_Select, rs | (ls << 8));
 }
 
-static void mixer_reset(AC97LinkState *s)
+static void mixer_reset(Intel_ICH5_AC97_State *s)
 {
     uint8_t active[LAST_INDEX];
 
-    dolog("mixer_reset\n");
     memset(s->mixer_data, 0, sizeof(s->mixer_data));
     memset(active, 0, sizeof(active));
-    mixer_store(s, AC97_Reset, 0x0000); /* 6940 */
-    mixer_store(s, AC97_Headphone_Volume_Mute, 0x0000);
-    mixer_store(s, AC97_Master_Volume_Mono_Mute, 0x0000);
+    mixer_store(s, AC97_Reset, 0x0000);
+    mixer_store(s, AC97_Headphone_Volume_Mute, 0x8000);
+    mixer_store(s, AC97_Master_Volume_Mono_Mute, 0x8000);
     mixer_store(s, AC97_Master_Tone_RL, 0x0000);
-    mixer_store(s, AC97_PC_BEEP_Volume_Mute, 0x0000);
-    mixer_store(s, AC97_Phone_Volume_Mute, 0x0000);
-    mixer_store(s, AC97_Mic_Volume_Mute, 0x0000);
-    mixer_store(s, AC97_Line_In_Volume_Mute, 0x0000);
-    mixer_store(s, AC97_CD_Volume_Mute, 0x0000);
-    mixer_store(s, AC97_Video_Volume_Mute, 0x0000);
-    mixer_store(s, AC97_Aux_Volume_Mute, 0x0000);
+    mixer_store(s, AC97_PC_BEEP_Volume_Mute, 0x8000);
+    mixer_store(s, AC97_Phone_Volume_Mute, 0x8008);
+    mixer_store(s, AC97_Mic_Volume_Mute, 0x8008);
+    mixer_store(s, AC97_Line_In_Volume_Mute, 0x8808);
+    mixer_store(s, AC97_CD_Volume_Mute, 0x8808);
+    mixer_store(s, AC97_Video_Volume_Mute, 0x8000);
+    mixer_store(s, AC97_Aux_Volume_Mute, 0x8808);
     mixer_store(s, AC97_Record_Gain_Mic_Mute, 0x0000);
     mixer_store(s, AC97_General_Purpose, 0x0000);
-    mixer_store(s, AC97_3D_Control, 0x0000);
     mixer_store(s, AC97_Powerdown_Ctrl_Stat, 0x000f);
 
-    /*
-     * Sigmatel 9700 (STAC9700)
-     */
-    mixer_store(s, AC97_Vendor_ID1, 0x8384);
-    mixer_store(s, AC97_Vendor_ID2, 0x7600); /* 7608 */
+    mixer_store(s, AC97_Vendor_ID1, 0x8384); /* Use the Realtek ALC665 Configuration */
+    mixer_store(s, AC97_Vendor_ID2, 0x7600);
+    mixer_store(s, AC97_Extended_Audio_ID, 0x09c4);
+    mixer_store(s, AC97_Extended_Audio_Ctrl_Stat, 0x0040);
 
-    mixer_store(s, AC97_Extended_Audio_ID, 0x0809);
-    mixer_store(s, AC97_Extended_Audio_Ctrl_Stat, 0x0009);
     mixer_store(s, AC97_PCM_Front_DAC_Rate, 0xbb80);
     mixer_store(s, AC97_PCM_Surround_DAC_Rate, 0xbb80);
     mixer_store(s, AC97_PCM_LFE_DAC_Rate, 0xbb80);
     mixer_store(s, AC97_PCM_LR_ADC_Rate, 0xbb80);
     mixer_store(s, AC97_MIC_ADC_Rate, 0xbb80);
+    mixer_store(s, AC97_6Ch_Vol_C_LFE_Mute, 0x8080);
+    mixer_store(s, AC97_6Ch_Vol_L_R_Surround_Mute, 0x8080);
+    mixer_store(s, AC97_SPDIF_Control, 0x2000);
+    mixer_store(s, AC97_SPDIF_DAC_Volume, 0x0808);
+    mixer_store(s, AC97_SPDIF_CEN_LFE_DAC_Volume, 0x0808);
+    mixer_store(s, AC97_Multichannel, 0x0000);
+    mixer_store(s, AC97_Extension_Control, 0x60a0);
 
     record_select(s, 0);
     set_volume(s, AC97_Master_Volume_Mute, 0x8000);
@@ -507,23 +481,21 @@ static void mixer_reset(AC97LinkState *s)
  */
 static uint32_t nam_readb(void *opaque, uint32_t addr)
 {
-    AC97LinkState *s = opaque;
-    dolog("U nam readb 0x%x\n", addr);
+    Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
     return ~0U;
 }
 
 static uint32_t nam_readw(void *opaque, uint32_t addr)
 {
-    AC97LinkState *s = opaque;
+    Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
     return mixer_load(s, addr);
 }
 
 static uint32_t nam_readl(void *opaque, uint32_t addr)
 {
-    AC97LinkState *s = opaque;
-    dolog("U nam readl 0x%x\n", addr);
+    Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
     return ~0U;
 }
@@ -534,14 +506,13 @@ static uint32_t nam_readl(void *opaque, uint32_t addr)
  */
 static void nam_writeb(void *opaque, uint32_t addr, uint32_t val)
 {
-    AC97LinkState *s = opaque;
-    dolog("U nam writeb 0x%x <- 0x%x\n", addr, val);
+    Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
 }
 
 static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
 {
-    AC97LinkState *s = opaque;
+    Intel_ICH5_AC97_State *s = opaque;
 
     s->cas = 0;
     switch (addr) {
@@ -561,12 +532,6 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
     case AC97_Record_Select:
         record_select(s, val);
         break;
-    case AC97_Vendor_ID1:
-    case AC97_Vendor_ID2:
-        dolog("Attempt to write vendor ID to 0x%x\n", val);
-        break;
-    case AC97_Extended_Audio_ID:
-        dolog("Attempt to write extended audio ID to 0x%x\n", val);
         break;
     case AC97_Extended_Audio_Ctrl_Stat:
         if (!(val & EACS_VRA)) {
@@ -579,37 +544,24 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
             mixer_store(s, AC97_MIC_ADC_Rate, 0xbb80);
             open_voice(s, MC_INDEX, 48000);
         }
-        dolog("Setting extended audio control to 0x%x\n", val);
         mixer_store(s, AC97_Extended_Audio_Ctrl_Stat, val);
         break;
     case AC97_PCM_Front_DAC_Rate:
         if (mixer_load(s, AC97_Extended_Audio_Ctrl_Stat) & EACS_VRA) {
             mixer_store(s, addr, val);
-            dolog("Set front DAC rate to %d\n", val);
             open_voice(s, PO_INDEX, val);
-        } else {
-            dolog("Attempt to set front DAC rate to %d, but VRA is not set\n",
-                  val);
         }
         break;
     case AC97_MIC_ADC_Rate:
         if (mixer_load(s, AC97_Extended_Audio_Ctrl_Stat) & EACS_VRM) {
             mixer_store(s, addr, val);
-            dolog("Set MIC ADC rate to %d\n", val);
             open_voice(s, MC_INDEX, val);
-        } else {
-            dolog("Attempt to set MIC ADC rate to %d, but VRM is not set\n",
-                  val);
         }
         break;
     case AC97_PCM_LR_ADC_Rate:
         if (mixer_load(s, AC97_Extended_Audio_Ctrl_Stat) & EACS_VRA) {
             mixer_store(s, addr, val);
-            dolog("Set front LR ADC rate to %d\n", val);
             open_voice(s, PI_INDEX, val);
-        } else {
-            dolog("Attempt to set LR ADC rate to %d, but VRA is not set\n",
-                  val);
         }
         break;
     case AC97_Headphone_Volume_Mute:
@@ -625,12 +577,15 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
     case AC97_Record_Gain_Mic_Mute:
     case AC97_General_Purpose:
     case AC97_3D_Control:
-    case AC97_Sigmatel_Analog:
-    case AC97_Sigmatel_Dac2Invert:
+    case AC97_Extended_Audio_ID:
+    case AC97_Vendor_ID1:
+    case AC97_Vendor_ID2:
+    case AC97_6Ch_Vol_C_LFE_Mute:
+    case AC97_Multichannel:
+    case AC97_Audio_Int_and_Paging:
         /* None of the features in these regs are emulated, so they are RO */
         break;
     default:
-        dolog("U nam writew 0x%x <- 0x%x\n", addr, val);
         mixer_store(s, addr, val);
         break;
     }
@@ -638,8 +593,7 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
 
 static void nam_writel(void *opaque, uint32_t addr, uint32_t val)
 {
-    AC97LinkState *s = opaque;
-    dolog("U nam writel 0x%x <- 0x%x\n", addr, val);
+    Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
 }
 
@@ -649,53 +603,61 @@ static void nam_writel(void *opaque, uint32_t addr, uint32_t val)
  */
 static uint32_t nabm_readb(void *opaque, uint32_t addr)
 {
-    AC97LinkState *s = opaque;
-    AC97BusMasterRegs *r = NULL;
+    Intel_ICH5_AC97_State *s = opaque;
+    Intel_ICH5_AC97_BM_State *r = NULL;
     uint32_t val = ~0U;
 
     switch (addr) {
     case CAS:
-        dolog("CAS %d\n", s->cas);
         val = s->cas;
         s->cas = 1;
         break;
     case PI_CIV:
     case PO_CIV:
     case MC_CIV:
+    case MC2_CIV:
+    case PI2_CIV:
+    case SPDIF_CIV:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->civ;
-        dolog("CIV[%d] -> 0x%x\n", GET_BM(addr), val);
         break;
     case PI_LVI:
     case PO_LVI:
     case MC_LVI:
+    case MC2_LVI:
+    case PI2_LVI:
+    case SPDIF_LVI:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->lvi;
-        dolog("LVI[%d] -> 0x%x\n", GET_BM(addr), val);
         break;
     case PI_PIV:
     case PO_PIV:
     case MC_PIV:
+    case MC2_PIV:
+    case PI2_PIV:
+    case SPDIF_PIV:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->piv;
-        dolog("PIV[%d] -> 0x%x\n", GET_BM(addr), val);
         break;
     case PI_CR:
     case PO_CR:
     case MC_CR:
+    case MC2_CR:
+    case PI2_CR:
+    case SPDIF_CR:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->cr;
-        dolog("CR[%d] -> 0x%x\n", GET_BM(addr), val);
         break;
     case PI_SR:
     case PO_SR:
     case MC_SR:
+    case MC2_SR:
+    case PI2_SR:
+    case SPDIF_SR:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->sr & 0xff;
-        dolog("SRb[%d] -> 0x%x\n", GET_BM(addr), val);
         break;
     default:
-        dolog("U nabm readb 0x%x -> 0x%x\n", addr, val);
         break;
     }
     return val;
@@ -703,27 +665,28 @@ static uint32_t nabm_readb(void *opaque, uint32_t addr)
 
 static uint32_t nabm_readw(void *opaque, uint32_t addr)
 {
-    AC97LinkState *s = opaque;
-    AC97BusMasterRegs *r = NULL;
+    Intel_ICH5_AC97_State *s = opaque;
+    Intel_ICH5_AC97_BM_State *r = NULL;
     uint32_t val = ~0U;
 
     switch (addr) {
     case PI_SR:
     case PO_SR:
     case MC_SR:
+    case MC2_SR:
+    case PI2_SR:
+    case SPDIF_SR:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->sr;
-        dolog("SR[%d] -> 0x%x\n", GET_BM(addr), val);
         break;
     case PI_PICB:
     case PO_PICB:
     case MC_PICB:
+    case MC2_PICB:
+    case PI2_PICB:
+    case SPDIF_PICB:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->picb;
-        dolog("PICB[%d] -> 0x%x\n", GET_BM(addr), val);
-        break;
-    default:
-        dolog("U nabm readw 0x%x -> 0x%x\n", addr, val);
         break;
     }
     return val;
@@ -731,44 +694,45 @@ static uint32_t nabm_readw(void *opaque, uint32_t addr)
 
 static uint32_t nabm_readl(void *opaque, uint32_t addr)
 {
-    AC97LinkState *s = opaque;
-    AC97BusMasterRegs *r = NULL;
+    Intel_ICH5_AC97_State *s = opaque;
+    Intel_ICH5_AC97_BM_State *r = NULL;
     uint32_t val = ~0U;
 
     switch (addr) {
     case PI_BDBAR:
     case PO_BDBAR:
     case MC_BDBAR:
+    case MC2_BDBAR:
+    case PI2_BDBAR:
+    case SPDIF_BDBAR:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->bdbar;
-        dolog("BMADDR[%d] -> 0x%x\n", GET_BM(addr), val);
         break;
     case PI_CIV:
     case PO_CIV:
     case MC_CIV:
+    case MC2_CIV:
+    case PI2_CIV:
+    case SPDIF_CIV:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->civ | (r->lvi << 8) | (r->sr << 16);
-        dolog("CIV LVI SR[%d] -> 0x%x, 0x%x, 0x%x\n", GET_BM(addr),
-               r->civ, r->lvi, r->sr);
         break;
     case PI_PICB:
     case PO_PICB:
     case MC_PICB:
+    case MC2_PICB:
+    case PI2_PICB:
+    case SPDIF_PICB:
         r = &s->bm_regs[GET_BM(addr)];
         val = r->picb | (r->piv << 16) | (r->cr << 24);
-        dolog("PICB PIV CR[%d] -> 0x%x 0x%x 0x%x 0x%x\n", GET_BM(addr),
-               val, r->picb, r->piv, r->cr);
         break;
     case GLOB_CNT:
         val = s->glob_cnt;
-        dolog("glob_cnt -> 0x%x\n", val);
         break;
     case GLOB_STA:
         val = s->glob_sta | GS_S0CR;
-        dolog("glob_sta -> 0x%x\n", val);
         break;
     default:
-        dolog("U nabm readl 0x%x -> 0x%x\n", addr, val);
         break;
     }
     return val;
@@ -780,13 +744,17 @@ static uint32_t nabm_readl(void *opaque, uint32_t addr)
  */
 static void nabm_writeb(void *opaque, uint32_t addr, uint32_t val)
 {
-    AC97LinkState *s = opaque;
-    AC97BusMasterRegs *r = NULL;
+    Intel_ICH5_AC97_State *s = opaque;
+    Intel_ICH5_AC97_BM_State *r = NULL;
 
     switch (addr) {
-    case PI_LVI:
-    case PO_LVI:
-    case MC_LVI:
+    /* Last Valid Indexes. Rest are of the same order */
+    case PI_LVI: /* PCM In */
+    case PO_LVI: /* PCM Out */
+    case MC_LVI: /* Mic In  */
+    case MC2_LVI: /* Mic2 In */
+    case PI2_LVI: /* PCM2 In */
+    case SPDIF_LVI: /* SPDIF */
         r = &s->bm_regs[GET_BM(addr)];
         if ((r->cr & CR_RPBM) && (r->sr & SR_DCH)) {
             r->sr &= ~(SR_DCH | SR_CELV);
@@ -795,11 +763,15 @@ static void nabm_writeb(void *opaque, uint32_t addr, uint32_t val)
             fetch_bd(s, r);
         }
         r->lvi = val % 32;
-        dolog("LVI[%d] <- 0x%x\n", GET_BM(addr), val);
         break;
+
+    /* Control */
     case PI_CR:
     case PO_CR:
     case MC_CR:
+    case MC2_CR:
+    case PI2_CR:
+    case SPDIF_CR:
         r = &s->bm_regs[GET_BM(addr)];
         if (val & CR_RR) {
             reset_bm_regs(s, r);
@@ -816,74 +788,79 @@ static void nabm_writeb(void *opaque, uint32_t addr, uint32_t val)
                 voice_set_active(s, r - s->bm_regs, 1);
             }
         }
-        dolog("CR[%d] <- 0x%x (cr 0x%x)\n", GET_BM(addr), val, r->cr);
         break;
+
+    /* Status */
     case PI_SR:
     case PO_SR:
     case MC_SR:
+    case MC2_SR:
+    case PI2_SR:
+    case SPDIF_SR:
         r = &s->bm_regs[GET_BM(addr)];
         r->sr |= val & ~(SR_RO_MASK | SR_WCLEAR_MASK);
         update_sr(s, r, r->sr & ~(val & SR_WCLEAR_MASK));
-        dolog("SR[%d] <- 0x%x (sr 0x%x)\n", GET_BM(addr), val, r->sr);
         break;
     default:
-        dolog("U nabm writeb 0x%x <- 0x%x\n", addr, val);
         break;
     }
 }
 
 static void nabm_writew(void *opaque, uint32_t addr, uint32_t val)
 {
-    AC97LinkState *s = opaque;
-    AC97BusMasterRegs *r = NULL;
+    Intel_ICH5_AC97_State *s = opaque;
+    Intel_ICH5_AC97_BM_State *r = NULL;
 
     switch (addr) {
     case PI_SR:
     case PO_SR:
     case MC_SR:
+    case MC2_SR:
+    case PI2_CR:
+    case SPDIF_CR:
         r = &s->bm_regs[GET_BM(addr)];
         r->sr |= val & ~(SR_RO_MASK | SR_WCLEAR_MASK);
         update_sr(s, r, r->sr & ~(val & SR_WCLEAR_MASK));
-        dolog("SR[%d] <- 0x%x (sr 0x%x)\n", GET_BM(addr), val, r->sr);
         break;
     default:
-        dolog("U nabm writew 0x%x <- 0x%x\n", addr, val);
         break;
     }
 }
 
 static void nabm_writel(void *opaque, uint32_t addr, uint32_t val)
 {
-    AC97LinkState *s = opaque;
-    AC97BusMasterRegs *r = NULL;
+    Intel_ICH5_AC97_State *s = opaque;
+    Intel_ICH5_AC97_BM_State *r = NULL;
 
     switch (addr) {
+    /* Bus Master Address */
     case PI_BDBAR:
     case PO_BDBAR:
     case MC_BDBAR:
+    case MC2_BDBAR:
+    case PI2_BDBAR:
+    case SPDIF_BDBAR:
         r = &s->bm_regs[GET_BM(addr)];
         r->bdbar = val & ~3;
-        dolog("BDBAR[%d] <- 0x%x (bdbar 0x%x)\n", GET_BM(addr), val, r->bdbar);
         break;
     case GLOB_CNT:
         /* TODO: Handle WR or CR being set (warm/cold reset requests) */
         if (!(val & (GC_WR | GC_CR))) {
             s->glob_cnt = val & GC_VALID_MASK;
         }
-        dolog("glob_cnt <- 0x%x (glob_cnt 0x%x)\n", val, s->glob_cnt);
         break;
+
+    /* Global Status */
     case GLOB_STA:
         s->glob_sta &= ~(val & GS_WCLEAR_MASK);
         s->glob_sta |= (val & ~(GS_WCLEAR_MASK | GS_RO_MASK)) & GS_VALID_MASK;
-        dolog("glob_sta <- 0x%x (glob_sta 0x%x)\n", val, s->glob_sta);
         break;
     default:
-        dolog("U nabm writel 0x%x <- 0x%x\n", addr, val);
         break;
     }
 }
 
-static int write_audio(AC97LinkState *s, AC97BusMasterRegs *r,
+static int write_audio(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r,
                        int max, int *stop)
 {
     uint8_t tmpbuf[4096];
@@ -903,8 +880,6 @@ static int write_audio(AC97LinkState *s, AC97BusMasterRegs *r,
         to_copy = MIN(temp, sizeof(tmpbuf));
         pci_dma_read(&s->dev, addr, tmpbuf, to_copy);
         copied = AUD_write(s->voice_po, tmpbuf, to_copy);
-        dolog("write_audio max=%x to_copy=%x copied=%x\n",
-              max, to_copy, copied);
         if (!copied) {
             *stop = 1;
             break;
@@ -916,7 +891,6 @@ static int write_audio(AC97LinkState *s, AC97BusMasterRegs *r,
 
     if (!temp) {
         if (to_copy < 4) {
-            dolog("whoops\n");
             s->last_samp = 0;
         } else {
             s->last_samp = *(uint32_t *)&tmpbuf[to_copy - 4];
@@ -927,9 +901,8 @@ static int write_audio(AC97LinkState *s, AC97BusMasterRegs *r,
     return written;
 }
 
-static void write_bup(AC97LinkState *s, int elapsed)
+static void write_bup(Intel_ICH5_AC97_State *s, int elapsed)
 {
-    dolog("write_bup\n");
     if (!(s->bup_flag & BUP_SET)) {
         if (s->bup_flag & BUP_LAST) {
             int i;
@@ -956,7 +929,7 @@ static void write_bup(AC97LinkState *s, int elapsed)
     }
 }
 
-static int read_audio(AC97LinkState *s, AC97BusMasterRegs *r,
+static int read_audio(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r,
                       int max, int *stop)
 {
     uint8_t tmpbuf[4096];
@@ -991,14 +964,12 @@ static int read_audio(AC97LinkState *s, AC97BusMasterRegs *r,
     return nread;
 }
 
-static void transfer_audio(AC97LinkState *s, int index, int elapsed)
+static void transfer_audio(Intel_ICH5_AC97_State *s, int index, int elapsed)
 {
-    AC97BusMasterRegs *r = &s->bm_regs[index];
+    Intel_ICH5_AC97_BM_State *r = &s->bm_regs[index];
     int stop = 0;
 
     if (s->invalid_freq[index]) {
-        AUD_log("ac97", "attempt to use voice %d with invalid frequency %d\n",
-                index, s->invalid_freq[index]);
         return;
     }
 
@@ -1017,13 +988,10 @@ static void transfer_audio(AC97LinkState *s, int index, int elapsed)
         int temp;
 
         if (!r->bd_valid) {
-            dolog("invalid bd\n");
             fetch_bd(s, r);
         }
 
         if (!r->picb) {
-            dolog("fresh bd %d is empty 0x%x 0x%x\n",
-                  r->civ, r->bd.addr, r->bd.ctl_len);
             if (r->civ == r->lvi) {
                 r->sr |= SR_DCH; /* CELV? */
                 s->bup_flag = 0;
@@ -1059,8 +1027,6 @@ static void transfer_audio(AC97LinkState *s, int index, int elapsed)
             }
 
             if (r->civ == r->lvi) {
-                dolog("Underrun civ (%d) == lvi (%d)\n", r->civ, r->lvi);
-
                 new_sr |= SR_LVBCI | SR_DCH | SR_CELV;
                 stop = 1;
                 s->bup_flag = (r->bd.ctl_len & BD_BUP) ? BUP_LAST : 0;
@@ -1090,37 +1056,34 @@ static void po_callback(void *opaque, int free)
     transfer_audio(opaque, PO_INDEX, free);
 }
 
-static const VMStateDescription vmstate_ac97_bm_regs = {
-    .name = "ac97_bm_regs",
+static const VMStateDescription vmstate_intel_ich5_ac97_bm_regs = {
+    .name = "intel_ich5_ac97_bm_regs",
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT32(bdbar, AC97BusMasterRegs),
-        VMSTATE_UINT8(civ, AC97BusMasterRegs),
-        VMSTATE_UINT8(lvi, AC97BusMasterRegs),
-        VMSTATE_UINT16(sr, AC97BusMasterRegs),
-        VMSTATE_UINT16(picb, AC97BusMasterRegs),
-        VMSTATE_UINT8(piv, AC97BusMasterRegs),
-        VMSTATE_UINT8(cr, AC97BusMasterRegs),
-        VMSTATE_UINT32(bd_valid, AC97BusMasterRegs),
-        VMSTATE_UINT32(bd.addr, AC97BusMasterRegs),
-        VMSTATE_UINT32(bd.ctl_len, AC97BusMasterRegs),
+        VMSTATE_UINT32(bdbar, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT8(civ, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT8(lvi, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT16(sr, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT16(picb, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT8(piv, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT8(cr, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT32(bd_valid, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT32(bd.addr, Intel_ICH5_AC97_BM_State),
+        VMSTATE_UINT32(bd.ctl_len, Intel_ICH5_AC97_BM_State),
         VMSTATE_END_OF_LIST()
     }
 };
 
-static int ac97_post_load(void *opaque, int version_id)
+static int intel_ich5_ac97_post_load(void *opaque, int version_id)
 {
     uint8_t active[LAST_INDEX];
-    AC97LinkState *s = opaque;
+    Intel_ICH5_AC97_State *s = opaque;
 
     record_select(s, mixer_load(s, AC97_Record_Select));
-    set_volume(s, AC97_Master_Volume_Mute,
-               mixer_load(s, AC97_Master_Volume_Mute));
-    set_volume(s, AC97_PCM_Out_Volume_Mute,
-               mixer_load(s, AC97_PCM_Out_Volume_Mute));
-    set_volume(s, AC97_Record_Gain_Mute,
-               mixer_load(s, AC97_Record_Gain_Mute));
+    set_volume(s, AC97_Master_Volume_Mute, mixer_load(s, AC97_Master_Volume_Mute));
+    set_volume(s, AC97_PCM_Out_Volume_Mute, mixer_load(s, AC97_PCM_Out_Volume_Mute));
+    set_volume(s, AC97_Record_Gain_Mute, mixer_load(s, AC97_Record_Gain_Mute));
 
     active[PI_INDEX] = !!(s->bm_regs[PI_INDEX].cr & CR_RPBM);
     active[PO_INDEX] = !!(s->bm_regs[PO_INDEX].cr & CR_RPBM);
@@ -1132,25 +1095,19 @@ static int ac97_post_load(void *opaque, int version_id)
     return 0;
 }
 
-static bool is_version_2(void *opaque, int version_id)
-{
-    return version_id == 2;
-}
-
-static const VMStateDescription vmstate_ac97 = {
-    .name = "ac97",
-    .version_id = 3,
-    .minimum_version_id = 2,
-    .post_load = ac97_post_load,
+static const VMStateDescription vmstate_intel_ich5_ac97 = {
+    .name = "intel_ich5_ac97",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .post_load = intel_ich5_ac97_post_load,
     .fields = (VMStateField[]) {
-        VMSTATE_PCI_DEVICE(dev, AC97LinkState),
-        VMSTATE_UINT32(glob_cnt, AC97LinkState),
-        VMSTATE_UINT32(glob_sta, AC97LinkState),
-        VMSTATE_UINT32(cas, AC97LinkState),
-        VMSTATE_STRUCT_ARRAY(bm_regs, AC97LinkState, 3, 1,
-                             vmstate_ac97_bm_regs, AC97BusMasterRegs),
-        VMSTATE_BUFFER(mixer_data, AC97LinkState),
-        VMSTATE_UNUSED_TEST(is_version_2, 3),
+        VMSTATE_PCI_DEVICE(dev, Intel_ICH5_AC97_State),
+        VMSTATE_UINT32(glob_cnt, Intel_ICH5_AC97_State),
+        VMSTATE_UINT32(glob_sta, Intel_ICH5_AC97_State),
+        VMSTATE_UINT32(cas, Intel_ICH5_AC97_State),
+        VMSTATE_STRUCT_ARRAY(bm_regs, Intel_ICH5_AC97_State, 3, 1,
+                             vmstate_intel_ich5_ac97_bm_regs, Intel_ICH5_AC97_BM_State),
+        VMSTATE_BUFFER(mixer_data, Intel_ICH5_AC97_State),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -1252,71 +1209,59 @@ static const MemoryRegionOps ac97_io_nabm_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
-static void ac97_on_reset(DeviceState *dev)
+static void intel_ich5_ac97_reset(DeviceState *dev)
 {
-    AC97LinkState *s = AC97(dev);
+    Intel_ICH5_AC97_State *s = INTEL_ICH5_AC97(dev);
 
     reset_bm_regs(s, &s->bm_regs[0]);
     reset_bm_regs(s, &s->bm_regs[1]);
     reset_bm_regs(s, &s->bm_regs[2]);
-
-    /*
-     * Reset the mixer too. The Windows XP driver seems to rely on
-     * this. At least it wants to read the vendor id before it resets
-     * the codec manually.
-     */
     mixer_reset(s);
 }
 
-static void ac97_realize(PCIDevice *dev, Error **errp)
+static void intel_ich5_ac97_realize(PCIDevice *dev, Error **errp)
 {
-    AC97LinkState *s = AC97(dev);
-    uint8_t *c = s->dev.config;
+    Intel_ICH5_AC97_State *s = INTEL_ICH5_AC97(dev);
 
-    if (!AUD_register_card ("ac97", &s->card, errp)) {
+    if (!AUD_register_card("intel-ich5-ac97", &s->card, errp)) {
         return;
     }
 
-    /* TODO: no need to override */
-    c[PCI_COMMAND] = 0x00;      /* pcicmd pci command rw, ro */
-    c[PCI_COMMAND + 1] = 0x00;
+    dev->config[0x06] = 0x80;
+    dev->config[0x07] = 0x02;
+    dev->config[0x10] = 0x01;
+    dev->config[0x14] = 0x01;
+    dev->config[0x18] = 0x01;
+    dev->config[0x1c] = 0x01;
+    dev->config[0x34] = 0x50;
+    dev->config[0x3d] = 0x02;
+    dev->config[0x40] = 0x09;
+    dev->config[0x50] = 0x01;
+    dev->config[0x52] = 0xc2;
+    dev->config[0x53] = 0xc9;
 
-    /* TODO: */
-    c[PCI_STATUS] = PCI_STATUS_FAST_BACK;      /* pcists pci status rwc, ro */
-    c[PCI_STATUS + 1] = PCI_STATUS_DEVSEL_MEDIUM >> 8;
-
-    c[PCI_CLASS_PROG] = 0x00;      /* pi programming interface ro */
-
-    /* TODO set when bar is registered. no need to override. */
-    /* nabmar native audio mixer base address rw */
-    c[PCI_BASE_ADDRESS_0] = PCI_BASE_ADDRESS_SPACE_IO;
-    c[PCI_BASE_ADDRESS_0 + 1] = 0x00;
-    c[PCI_BASE_ADDRESS_0 + 2] = 0x00;
-    c[PCI_BASE_ADDRESS_0 + 3] = 0x00;
-
-    /* TODO set when bar is registered. no need to override. */
-      /* nabmbar native audio bus mastering base address rw */
-    c[PCI_BASE_ADDRESS_0 + 4] = PCI_BASE_ADDRESS_SPACE_IO;
-    c[PCI_BASE_ADDRESS_0 + 5] = 0x00;
-    c[PCI_BASE_ADDRESS_0 + 6] = 0x00;
-    c[PCI_BASE_ADDRESS_0 + 7] = 0x00;
-
-    c[PCI_INTERRUPT_LINE] = 0x00;      /* intr_ln interrupt line rw */
-    c[PCI_INTERRUPT_PIN] = 0x01;      /* intr_pn interrupt pin ro */
-
-    memory_region_init_io(&s->io_nam, OBJECT(s), &ac97_io_nam_ops, s,
-                          "ac97-nam", 1024);
-    memory_region_init_io(&s->io_nabm, OBJECT(s), &ac97_io_nabm_ops, s,
-                          "ac97-nabm", 256);
+    /* Native Audio Mixer */
+    memory_region_init_io(&s->io_nam, OBJECT(s), &ac97_io_nam_ops, s, "nam", 256);
     pci_register_bar(&s->dev, 0, PCI_BASE_ADDRESS_SPACE_IO, &s->io_nam);
+
+    /* Native Audio Bus Mastering */
+    memory_region_init_io(&s->io_nabm, OBJECT(s), &ac97_io_nabm_ops, s, "nabm", 0x100);
     pci_register_bar(&s->dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &s->io_nabm);
 
-    ac97_on_reset(DEVICE(s));
+    /* Mixer Base */
+//    memory_region_init_io(&s->io_mm, OBJECT(s), &ac97_io_nabm_ops, s, "mm", 512);
+//    pci_register_bar(&s->dev, 2, 0, &s->io_nabm);
+
+    /* Bus Master Base */
+    memory_region_init_io(&s->io_mb, OBJECT(s), &ac97_io_nabm_ops, s, "mb", 256);
+    pci_register_bar(&s->dev, 3, 0, &s->io_mb);
+
+    intel_ich5_ac97_reset(DEVICE(s));
 }
 
-static void ac97_exit(PCIDevice *dev)
+static void intel_ich5_ac97_exit(PCIDevice *dev)
 {
-    AC97LinkState *s = AC97(dev);
+    Intel_ICH5_AC97_State *s = INTEL_ICH5_AC97(dev);
 
     AUD_close_in(&s->card, s->voice_pi);
     AUD_close_out(&s->card, s->voice_po);
@@ -1324,45 +1269,163 @@ static void ac97_exit(PCIDevice *dev)
     AUD_remove_card(&s->card);
 }
 
-static Property ac97_properties[] = {
-    DEFINE_AUDIO_PROPERTIES(AC97LinkState, card),
+static Property intel_ich5_ac97_properties[] = {
+    DEFINE_AUDIO_PROPERTIES(Intel_ICH5_AC97_State, card),
     DEFINE_PROP_END_OF_LIST(),
 };
 
-static void ac97_class_init(ObjectClass *klass, void *data)
+static void intel_ich5_ac97_write(PCIDevice *dev, uint32_t address, uint32_t val, int len)
+{
+    pci_default_write_config(dev, address, val, len);
+
+    for(int i = 0; i < len; i++){
+        int ro_only = 0;
+
+        uint8_t new_val = (val >> (i * 8)) & 0xff;
+
+        switch(address + i)
+        {
+            case 0x04:
+                new_val = new_val & 0x07;
+            break;
+
+            case 0x05:
+                new_val = new_val & 0x04;
+            break;
+
+            case 0x07:
+                new_val &= ~(new_val & 0x40);
+                new_val |= 0x02;
+            break;
+
+            case 0x15:
+                new_val = new_val & 0xc0;
+            break;
+
+            case 0x18:
+                new_val = new_val & 0xc0;
+            break;
+
+            case 0x19:
+                new_val = new_val & 0xfc;
+            break;
+
+            case 0x2c:
+            case 0x2d:
+            case 0x2e:
+            case 0x2f:
+                if(dev->config[address + i] != 0) /* After Subsystem ID is programmed, it cannot be reprogrammed again */
+                    ro_only = 1;
+            break;
+
+            case 0x40:
+                new_val = new_val & 0x0f;
+            break;
+
+            case 0x41:
+                new_val = new_val & 0x01;
+            break;
+
+            case 0x54:
+                new_val = new_val & 0x03;
+            break;
+
+            case 0x55:
+                new_val &= ~(new_val & 0x80);
+            break;
+
+            case 0x11:
+            case 0x16:
+            case 0x1a:
+            case 0x1b:
+            case 0x1d:
+            case 0x1e:
+            case 0x1f:
+            case 0x3c:
+            break;
+
+            default:
+                ro_only = 1;
+            break;
+        }
+
+        if(!ro_only) {
+            dev->config[address + i] = new_val;
+        }
+    }
+
+    switch(address)
+    {
+        case 0x10:
+        case 0x11:
+        case 0x12:
+        case 0x13:
+            if(dev->config[0x04] & 1)
+                qemu_printf("Intel ICH5 AC97: NAMBAR upgraded to 0x%02x\n", (dev->config[0x11] << 8) | (dev->config[0x10] & 0xc0));
+        break;
+
+        case 0x14:
+        case 0x15:
+        case 0x16:
+        case 0x17:
+            if(dev->config[0x04] & 1)
+                qemu_printf("Intel ICH5 AC97: NABMBAR upgraded to 0x%02x\n", (dev->config[0x15] << 8) | (dev->config[0x14] & 0xc0));
+        break;
+
+        case 0x18:
+        case 0x19:
+        case 0x1a:
+        case 0x1b:
+            if(dev->config[0x04] & 2)
+                qemu_printf("Intel ICH5 AC97: MMBAR upgraded to 0x%04x\n", (dev->config[0x1b] << 24) | (dev->config[0x1a] << 16) | (dev->config[0x19] << 8) | (dev->config[0x18] & 0xc0));
+        break;
+
+        case 0x1c:
+        case 0x1d:
+        case 0x1e:
+        case 0x1f:
+            if(dev->config[0x04] & 2)
+                qemu_printf("Intel ICH5 AC97: MBBAR upgraded to 0x%04x\n", (dev->config[0x1f] << 24) | (dev->config[0x1e] << 16) | (dev->config[0x1d] << 8) | (dev->config[0x1c] & 0xc0));
+        break;
+    }
+}
+
+static void intel_ich5_ac97_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
 
-    k->realize = ac97_realize;
-    k->exit = ac97_exit;
+    k->realize = intel_ich5_ac97_realize;
+    k->exit = intel_ich5_ac97_exit;
+    k->config_write = intel_ich5_ac97_write;
+    k->config_read = pci_default_read_config;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
-    k->device_id = PCI_DEVICE_ID_INTEL_82801AA_5;
-    k->revision = 0x01;
+    k->device_id = PCI_DEVICE_ID_INTEL_ICH5_AC97;
+    k->revision = 0x02;
     k->class_id = PCI_CLASS_MULTIMEDIA_AUDIO;
     set_bit(DEVICE_CATEGORY_SOUND, dc->categories);
-    dc->desc = "Intel 82801AA AC97 Audio";
-    dc->vmsd = &vmstate_ac97;
-    device_class_set_props(dc, ac97_properties);
-    dc->reset = ac97_on_reset;
+    dc->desc = "Intel ICH5 AC97";
+    dc->vmsd = &vmstate_intel_ich5_ac97;
+    device_class_set_props(dc, intel_ich5_ac97_properties);
+    dc->reset = intel_ich5_ac97_reset;
+    dc->user_creatable = false; /* Intel ICH5 AC'97 is onboard */
 }
 
-static const TypeInfo ac97_info = {
-    .name          = TYPE_AC97,
+static const TypeInfo intel_ich5_ac97_info = {
+    .name          = TYPE_INTEL_ICH5_AC97,
     .parent        = TYPE_PCI_DEVICE,
-    .instance_size = sizeof(AC97LinkState),
-    .class_init    = ac97_class_init,
+    .instance_size = sizeof(Intel_ICH5_AC97_State),
+    .class_init    = intel_ich5_ac97_class_init,
     .interfaces = (InterfaceInfo[]) {
         { INTERFACE_CONVENTIONAL_PCI_DEVICE },
         { },
     },
 };
 
-static void ac97_register_types(void)
+static void intel_ich5_ac97_register_types(void)
 {
-    type_register_static(&ac97_info);
-    deprecated_register_soundhw("ac97", "Intel 82801AA AC97 Audio",
-                                0, TYPE_AC97);
+    type_register_static(&intel_ich5_ac97_info);
+    deprecated_register_soundhw("intel-ich5-ac97", "Intel ICH5 AC97", 0, TYPE_INTEL_ICH5_AC97);
 }
 
-type_init(ac97_register_types)
+type_init(intel_ich5_ac97_register_types)

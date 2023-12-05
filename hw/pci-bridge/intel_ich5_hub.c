@@ -38,6 +38,8 @@ static void intel_ich5_hub_reset(DeviceState *dev)
     PCIDevice *s = PCI_DEVICE(dev);
 
     /* Initialize the Memory Mappings */
+    pci_bridge_write_config(s, 0x04, 0x01, 0x01);
+    pci_bridge_write_config(s, 0x07, 0x80, 0x01);
     pci_bridge_write_config(s, 0x1c, 0x01, 0x01);
     pci_bridge_write_config(s, 0x1e, 0x0280, 0x02);
     pci_bridge_write_config(s, 0x20, 0xfff0, 0x02);

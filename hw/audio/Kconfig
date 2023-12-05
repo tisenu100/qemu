@@ -8,7 +8,7 @@ config ES1370
     default y if PCI_DEVICES
     depends on PCI
 
-config AC97
+config AC97_INTEL_ICH5
     bool
     default y if PCI_DEVICES
     depends on PCI

@@ -83,8 +83,10 @@
 #include "hw/ide/pci.h"
 #include "hw/ide/piix.h"
 #include "hw/usb/hcd-uhci.h"
+#include "hw/audio/intel_ich5_ac97.h"
 #include "hw/acpi/intel_ich5_acpi.h"
 #include "hw/i2c/ics950219.h"
+#include "hw/i2c/winbond_w83194.h"
 #include "qemu/qemu-print.h"
 
 static int lpc_pirq(PCIDevice *pci_dev, int pci_intx)
@@ -160,8 +162,6 @@ static int hub_pirq(PCIDevice *pci_dev, int pci_intx)
     }
 
     pirq_table = (pirq_table >> (4 * pci_intx)) & 7;
-
-    qemu_printf("HUB PIRQ: Assigning for Slot %d PIRQ %c\n", PCI_SLOT(pci_dev->devfn), 'A' + pirq_table);
 
     return pirq_table;
 }
@@ -366,7 +366,7 @@ static void pc_init1(MachineState *machine)
     /* Probably to provoke an initialization */
     pci_realize_and_unref(intel_ich5_acpi, pci_bus, &error_fatal);
 
-    /* Set the ACPI IRQ pin to 9 like PIIX4 design. Normally we got to allow the ACPI to remap from the MCH */
+    /* Set the ACPI IRQ pin to 9 like PIIX4's design. Normally we got to allow the ACPI to remap from the MCH */
     qdev_connect_gpio_out(DEVICE(intel_ich5_acpi), 0, x86ms->gsi[9]);
 
     /* SMI Trigger */
@@ -380,6 +380,9 @@ static void pc_init1(MachineState *machine)
     /* Intel 865PE utilizes DDR Memory */
     uint8_t *spd[4];
     int modules;
+
+    /* Intel ICH5 Compatible AC'97 */
+    pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 5), TYPE_INTEL_ICH5_AC97);
 
     /* Initialize the Serial Presence Detect data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
     if((machine->ram_size >> 20) > 1024)
@@ -431,17 +434,21 @@ static void pc_init1(MachineState *machine)
         break;
     }
 
-    if(modules == 0)
-        spd_data_generate(DDR, machine->ram_size);
+    if(modules == 0) {
+        spd[0] = spd_data_generate(DDR, machine->ram_size);
+        smbus_eeprom_init_one(pcms->smbus, 0x50, spd[0]);
+    }
     else
         for(int i = 0; i < modules; i++)
             smbus_eeprom_init_one(pcms->smbus, 0x50 + i, spd[i]);
 
     /* ICS Clock Chip */
+//    winbond_w83194_init(pcms->smbus);
     ics950219_init(pcms->smbus);
 
     /* Link ACPIState with the LPC so we can remap it's I/O base */
     intel_ich5_link_acpi(lpc, acpi);
+    intel_ich5_acpi_mount_kbc_trap(acpi, isa_bus);
 
     qemu_printf(" --- Intel ICH5 Baseboard Finish --- \n");
 }

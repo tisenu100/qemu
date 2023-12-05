@@ -59,7 +59,13 @@ struct Intel_ICH5_ACPI_State {
     MemoryRegion smi_io;
     uint8_t smi_w[4];
     uint8_t smi_s[4];
-    uint32_t smi_io_base;
+
+    /* SMI Trap Handler */
+    ISABus *isa_bus; /* To forward ISA read/writes */
+    MemoryRegion smi_trap_io;
+    uint8_t smi_trap[2];
+
+    MemoryRegion kbc_trap; /* Port 60-64h Trap */
 
     /* SMI/SCI Qemu Stuff */
     bool smm_enabled;
@@ -72,5 +78,8 @@ struct Intel_ICH5_ACPI_State {
     uint8_t disable_s4;
     uint8_t s4_val;
 };
+typedef struct Intel_ICH5_ACPI_State Intel_ICH5_ACPI_State;
+
+void intel_ich5_acpi_mount_kbc_trap(Intel_ICH5_ACPI_State *acpi, ISABus *bus);
 
 #endif

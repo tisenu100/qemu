@@ -231,7 +231,7 @@ static void intel_865pe_write_config(PCIDevice *dev, uint32_t address, uint32_t 
                 new_val = new_val & 0xf1;
             break;
 
-            case 0xc6: /* We enforce 133Mhz with FSB 533Mhz */
+            case 0xc6: /* We enforce 200Mhz with FSB 800Mhz */
                 new_val = (new_val & 0x20) | 0x02;
             break;
 
@@ -452,6 +452,7 @@ static void intel_865pe_reset(DeviceState *s)
     dev->config[0xbc] = 0x10;
     dev->config[0xbd] = 0x10;
     dev->config[0xc5] = 0x04;
+    dev->config[0xc6] = 0x02;
     dev->config[0xe4] = 0x09;
     dev->config[0xe5] = 0xa0;
     dev->config[0xe6] = 0x04;

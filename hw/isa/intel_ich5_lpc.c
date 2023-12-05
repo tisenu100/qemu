@@ -169,6 +169,7 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
 
     for(int i = 0; i < len; i++){
         int ro_only = 0;
+        int pme_reg = 0;
         uint8_t new_val = (val >> (i * 8)) & 0xff;
 
         switch(address + i){
@@ -187,10 +188,16 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
 
             case 0x40:
                 new_val = (new_val & 0x80) | 1;
+                pme_reg = 1;
+            break;
+
+            case 0x41:
+                pme_reg = 1;
             break;
 
             case 0x44:
                 new_val = new_val & 0x17;
+                pme_reg = 1;
             break;
 
             case 0x4e:
@@ -239,27 +246,54 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                 new_val = new_val & 0x3f;
                 if(dev->config[0xa0] & 0x10) /* SMI_LOCK */
                     new_val |= 0x10;
+
+                pme_reg = 1;
             break;
 
             case 0xa2:
                 new_val &= ~(new_val & 0x9f); /* DRAM Initialization (Bit 7) is not allowed to be set cause the BIOS may think the DRAM initialization was interrupted. */
+                pme_reg = 1;
             break;
 
             case 0xa4:
                 new_val = new_val & 0xfc;
                 new_val &= ~(new_val & 3);
+                pme_reg = 1;
             break;
 
             case 0xa8:
                 new_val = new_val & 0x3f;
+                pme_reg = 1;
             break;
 
             case 0xad:
                 new_val = new_val & 0x03;
+                pme_reg = 1;
+            break;
+
+            case 0xb8:
+            case 0xb9:
+            case 0xba:
+            case 0xbb:
+                pme_reg = 1;
             break;
 
             case 0xc0:
                 new_val = new_val & 0xf0;
+                pme_reg = 1;
+            break;
+
+            case 0xc4:
+            case 0xc5:
+            case 0xc6:
+            case 0xc7:
+            case 0xc8:
+            case 0xc9:
+            case 0xca:
+            case 0xcb:
+            case 0xcc:
+            case 0xcd:
+                pme_reg = 1;
             break;
 
             case 0xd0:
@@ -333,24 +367,9 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                 new_val = new_val & 0xcf;
             break;
 
-            case 0x41:
             case 0x59:
             case 0x64:
             case 0x90:
-            case 0xb8:
-            case 0xb9:
-            case 0xba:
-            case 0xbb:
-            case 0xc4:
-            case 0xc5:
-            case 0xc6:
-            case 0xc7:
-            case 0xc8:
-            case 0xc9:
-            case 0xca:
-            case 0xcb:
-            case 0xcc:
-            case 0xcd:
             case 0xe3:
             case 0xe5:
             case 0xe8:
@@ -369,6 +388,10 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
 
         if(!ro_only) {
             dev->config[address + i] = new_val;
+
+            if(pme_reg)
+                d->pme_conf[address + i] = new_val;
+
             qemu_printf("Intel ICH5 LPC: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
 
@@ -437,7 +460,6 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     dev->config[0x04] = 0x0f;
     dev->config[0x06] = 0x80;
     dev->config[0x07] = 0x02;
-    dev->config[0x40] = 0x01;
     dev->config[0x58] = 0x01;
     dev->config[0x60] = 0x80;
     dev->config[0x61] = 0x80;
@@ -448,7 +470,6 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     dev->config[0x69] = 0x80;
     dev->config[0x6a] = 0x80;
     dev->config[0x6b] = 0x80;
-    dev->config[0x90] = 0x00;
     dev->config[0xa8] = 0x0d;
     dev->config[0xd0] = 0x04;
     dev->config[0xe3] = 0xff;
@@ -460,9 +481,22 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     dev->config[0xef] = 0x56;
     dev->config[0xf0] = 0x02;
 
+    dev->config[0x40] = d->pme_conf[0x40];
+    dev->config[0x41] = d->pme_conf[0x41];
+    dev->config[0x44] = d->pme_conf[0x44];
+
+    for(int i = 0; i < 4; i++)
+        dev->config[0xb8 + i] = d->pme_conf[0xb8 + i];
+
+    for(int i = 0; i < 16; i++){
+        dev->config[0xa0 + i] = d->pme_conf[0xa0 + i];
+        dev->config[0xc0 + i] = d->pme_conf[0xc0 + i];
+    }
+
     d->rcr = 0;
 
-    intel_ich5_acpi(0, 0, 0, d->acpi);
+    intel_ich5_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, d->acpi);
+    intel_ich5_acpi_irq(dev->config[0x44], d->acpi);
     intel_ich5_gpio(0, 0, 0);
     intel_ich5_pirq(d);
     intel_ich5_nvr_reset(d);
@@ -525,7 +559,9 @@ static void rcr_write(void *opaque, hwaddr addr, uint64_t val, unsigned len)
 
     if (val & 4) {
         qemu_printf("Reset Control: We are resetting!\n");
+
         qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+
         return;
     }
     d->rcr = val & 2; /* Keep System Reset type only */
@@ -576,6 +612,11 @@ static void intel_ich5_realize(PCIDevice *dev, Error **errp)
         return;
     uint32_t irq = object_property_get_uint(OBJECT(&d->rtc), "irq", &error_fatal);
     isa_connect_gpio_out(ISA_DEVICE(&d->rtc), 0, irq);
+
+    /* PCI PME Registers */
+        memset(d->pme_conf, 0, sizeof(d->pme_conf));
+        dev->config[0x40] = 0x01;
+        dev->config[0xa8] = 0x0d;
 }
 
 static void intel_ich5_lpc_init(Object *obj)
