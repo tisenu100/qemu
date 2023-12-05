@@ -366,9 +366,6 @@ static void pc_init1(MachineState *machine)
     /* Probably to provoke an initialization */
     pci_realize_and_unref(intel_ich5_acpi, pci_bus, &error_fatal);
 
-    /* Set the ACPI IRQ pin to 9 like PIIX4's design. Normally we got to allow the ACPI to remap from the MCH */
-    qdev_connect_gpio_out(DEVICE(intel_ich5_acpi), 0, x86ms->gsi[9]);
-
     /* SMI Trigger */
     qemu_irq smi_irq = qemu_allocate_irq(pc_acpi_smi_interrupt, first_cpu, 0);
     qdev_connect_gpio_out_named(DEVICE(intel_ich5_acpi), "smi-irq", 0, smi_irq);

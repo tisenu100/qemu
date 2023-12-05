@@ -37,9 +37,19 @@
 #include "hw/acpi/intel_ich5_acpi.h"
 #include "hw/southbridge/intel_ich5_lpc.h"
 
+static void intel_ich5_acpi_sci_update(void *opaque, int irq_num, int level)
+{
+    Intel_ICH5_LPC_State *s = opaque;
+    qemu_set_irq(s->lpc_irqs_in[s->acpi->sci_irq], level);
+}
+
 void intel_ich5_link_acpi(Intel_ICH5_LPC_State *lpc, Intel_ICH5_ACPI_State *acpi)
 {
     lpc->acpi = acpi;
+
+    /* Prepare the SCI IRQ when ready */
+    lpc->acpi->irq = qemu_allocate_irq(intel_ich5_acpi_sci_update, lpc, 0);
+
     qemu_printf("Intel ICH5 LPC: ACPI has been linked\n");
 }
 
@@ -58,9 +68,40 @@ static void intel_ich5_acpi(int msb, int lsb, int en, Intel_ICH5_ACPI_State *acp
     memory_region_transaction_commit();
 }
 
-static void intel_ich5_acpi_irq(int val, Intel_ICH5_ACPI_State *acpi)
+static int intel_ich5_sci_table(Intel_ICH5_LPC_State *lpc, int num)
 {
-    /* Nothing for now */
+    PCIDevice *dev = PCI_DEVICE(lpc);
+   
+    switch(num)
+    {
+        case 0x01:
+        case 0x02:
+            return 10 + (num - 1);
+
+        case 0x04:
+        case 0x05:
+        case 0x06:
+        case 0x07:
+            if(dev->config[0xd1] & 1)
+                return 20 + (num - 4);
+            else
+                return 9;
+
+        default: /* Default but also fallback */
+            return 9;
+    }
+}
+
+static void intel_ich5_acpi_irq(int val, Intel_ICH5_LPC_State *lpc)
+{
+    Intel_ICH5_ACPI_State *acpi = lpc->acpi;
+    PCIDevice *dev = PCI_DEVICE(lpc);
+
+    qemu_set_irq(acpi->irq, 0); /* Dispatch the SCI IRQ so we can update it */
+    acpi->sci_irq = intel_ich5_sci_table(lpc, dev->config[0x44] & 7);
+    qemu_set_irq(acpi->irq, 1); /* Now update it */
+
+    qemu_printf("Intel ICH5 LPC: SCI IRQ was updated to IRQ: %d\n", acpi->sci_irq);
 }
 
 static void intel_ich5_gpio(int msb, int lsb, int en)
@@ -115,8 +156,6 @@ static void intel_ich5_pirq(Intel_ICH5_LPC_State *d) /* The PIRQ Router */
 {
     PCIDevice *dev = &d->dev;
 
-//    qemu_printf("Intel ICH5 LPC: We provoked in PIRQ update!\n");
-
     for(int i = 0; i < 8; i++){
         int pic_irq = intel_ich5_irq_table(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x0f); /* Pick up the IRQ from the table */
         int enabled = !(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x80) && (pic_irq != 0); /* Check if the the PIRQ is asserted & if the IRQ value is valid on the table */
@@ -124,10 +163,7 @@ static void intel_ich5_pirq(Intel_ICH5_LPC_State *d) /* The PIRQ Router */
         d->pic_level = 0;
 
         if(!enabled)
-//            qemu_printf("Intel ICH5 LPC: PIRQ%c is handled by APIC (APIC: %d)\n", 'A' + i, 16 + i);
             pic_irq = 16 + i;
-//        else
-//            qemu_printf("Intel ICH5 LPC: PIRQ%c has the IRQ of %d\n", 'A' + i, pic_irq & 0x0f);
 
         d->pic_level |= pci_bus_get_irq_level(pci_get_bus(dev), i);
         qemu_set_irq(d->lpc_irqs_in[pic_irq], d->pic_level);
@@ -145,8 +181,6 @@ static void intel_ich5_nvr_reset(Intel_ICH5_LPC_State *s)
     s->rtc.u128e = 0;
     s->rtc.l128lock = 0;
     s->rtc.u128lock = 0;
-
-    qemu_printf("Intel ICH5 NVR: Upper Bank Configuration has been reset\n");
 }
 
 static void intel_ich5_nvr(int u128e, int l128lock, int u128lock, Intel_ICH5_LPC_State *s)
@@ -402,7 +436,7 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
         case 0x41:
         case 0x44:
             intel_ich5_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, d->acpi);
-            intel_ich5_acpi_irq(dev->config[0x44], d->acpi);
+            intel_ich5_acpi_irq(dev->config[0x44], d);
         break;
 
         case 0x58:
@@ -496,7 +530,7 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     d->rcr = 0;
 
     intel_ich5_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, d->acpi);
-    intel_ich5_acpi_irq(dev->config[0x44], d->acpi);
+    intel_ich5_acpi_irq(dev->config[0x44], d);
     intel_ich5_gpio(0, 0, 0);
     intel_ich5_pirq(d);
     intel_ich5_nvr_reset(d);

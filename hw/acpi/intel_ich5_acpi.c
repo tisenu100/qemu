@@ -370,23 +370,6 @@ void intel_ich5_acpi_mount_kbc_trap(Intel_ICH5_ACPI_State *acpi, ISABus *bus)
     qemu_printf("Intel ICH5 ACPI: KBC trap was mounted on the ISA\n");
 }
 
-/* Intel ICH5 SMBus PCI Device */
-static void intel_ich5_smbus(int msb, int lsb, int en, Intel_ICH5_ACPI_State *s)
-{
-    s->smb_io_base = ((msb << 8) | lsb) & 0xffc0;
-    bool enabled = en && (s->smb_io_base != 0);
-
-    if(enabled)
-        qemu_printf("Intel ICH5 SMBus: SMBus enabled on address 0x%04x\n", s->smb_io_base);
-    else
-        qemu_printf("Intel ICH5 SMBus: SMBus is disabled\n");
-
-    memory_region_transaction_begin();
-    memory_region_set_enabled(&s->smb.io, enabled);
-    memory_region_set_address(&s->smb.io, s->smb_io_base);
-    memory_region_transaction_commit();
-}
-
 static void intel_ich5_smbus_features(int val, Intel_ICH5_ACPI_State *s) {
 
     /*
@@ -462,22 +445,14 @@ static void intel_ich5_smbus_write_config(PCIDevice *dev, uint32_t address, uint
         case 0x04:
         case 0x20:
         case 0x21:
-            intel_ich5_smbus(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 1, ich5_acpi);
+            if(dev->config[0x04] & 1)
+                qemu_printf("Intel ICH5 SMBus: SMBus enabled on address 0x%04x\n", ((dev->config[0x21] << 8) | (dev->config[0x20])) & 0xffc0);
         break;
 
         case 0x40:
             intel_ich5_smbus_features(dev->config[0x40], ich5_acpi);
         break;
     }
-}
-
-static int intel_ich5_acpi_vmstate_post_load(void *opaque, int version_id)
-{
-    Intel_ICH5_ACPI_State *s = opaque;
-    PCIDevice *dev = PCI_DEVICE(s);
-
-    intel_ich5_smbus(dev->config[0x21], dev->config[0x20], dev->config[0x04] & 1, s);
-    return 0;
 }
 
 static bool intel_ich5_acpi_vmstate_need_smbus(void *opaque, int version_id)
@@ -489,7 +464,6 @@ static const VMStateDescription vmstate_acpi = {
     .name = "intel-ich5-acpi",
     .version_id = 1,
     .minimum_version_id = 1,
-    .post_load = intel_ich5_acpi_vmstate_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_PCI_DEVICE(parent_obj, Intel_ICH5_ACPI_State),
         VMSTATE_UINT16(ar.pm1.evt.sts, Intel_ICH5_ACPI_State),
@@ -524,7 +498,6 @@ static void intel_ich5_acpi_reset(DeviceState *dev)
     d->config[0x07] = 0x02;
     d->config[0x20] = 0x01;
     d->config[0x3d] = 0x02;
-    intel_ich5_smbus(d->config[0x21], d->config[0x20], d->config[0x04] & 1, s);
 }
 
 static void intel_ich5_acpi_powerdown_req(Notifier *n, void *opaque)
@@ -535,28 +508,9 @@ static void intel_ich5_acpi_powerdown_req(Notifier *n, void *opaque)
     acpi_pm1_evt_power_down(&s->ar);
 }
 
-static void intel_ich5_acpi_add_properties(Intel_ICH5_ACPI_State *s)
-{
-    static const uint8_t acpi_enable_cmd = ACPI_ENABLE;
-    static const uint8_t acpi_disable_cmd = ACPI_DISABLE;
-    static const uint32_t gpe0_blk = 0x2c;
-    static const uint32_t gpe0_blk_len = 4;
-    static const uint16_t sci_int = 9;
-
-    object_property_add_uint8_ptr(OBJECT(s), ACPI_PM_PROP_ACPI_ENABLE_CMD, &acpi_enable_cmd, OBJ_PROP_FLAG_READ);
-    object_property_add_uint8_ptr(OBJECT(s), ACPI_PM_PROP_ACPI_DISABLE_CMD, &acpi_disable_cmd, OBJ_PROP_FLAG_READ);
-    object_property_add_uint32_ptr(OBJECT(s), ACPI_PM_PROP_GPE0_BLK, &gpe0_blk, OBJ_PROP_FLAG_READ);
-    object_property_add_uint32_ptr(OBJECT(s), ACPI_PM_PROP_GPE0_BLK_LEN, &gpe0_blk_len, OBJ_PROP_FLAG_READ);
-    object_property_add_uint16_ptr(OBJECT(s), ACPI_PM_PROP_SCI_INT, &sci_int, OBJ_PROP_FLAG_READ);
-    object_property_add_uint32_ptr(OBJECT(s), ACPI_PM_PROP_PM_IO_BASE, &s->io_base, OBJ_PROP_FLAG_READ);
-}
-
 static void intel_ich5_acpi_init(Object *obj)
 {
     Intel_ICH5_ACPI_State *s = INTEL_ICH5_ACPI(obj);
-
-    /* SCI Interrupt */
-    qdev_init_gpio_out(DEVICE(obj), &s->irq, 1);
 
     /* SMI Interrupt */
     qdev_init_gpio_out_named(DEVICE(obj), &s->smi_irq, "smi-irq", 1);
@@ -568,8 +522,7 @@ static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
 
     /* SMBus */
     pm_smbus_init(DEVICE(dev), &s->smb, true);
-    memory_region_set_enabled(&s->smb.io, false);
-    memory_region_add_subregion(pci_address_space_io(dev), s->smb_io_base, &s->smb.io);
+    pci_register_bar(dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &s->smb.io);
     qemu_printf("Intel ICH5 SMBus: SMBus is up!\n");
 
     /* ACPI */
@@ -612,7 +565,6 @@ static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
     /* SMI Trap Handler */
     memory_region_init_io(&s->smi_trap_io, memory_region_owner(&s->io), &intel_ich5_acpi_smi_trap_ops, s, "acpi_smi_trap", 2);
     memory_region_add_subregion(&s->io, 0x48, &s->smi_trap_io);
-
     qemu_printf("Intel ICH5 ACPI: SMI Trap Handler\n");
 
     qemu_printf("Intel ICH5 ACPI: ACPI has started!\n");
@@ -621,11 +573,21 @@ static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
     s->powerdown_notifier.notify = intel_ich5_acpi_powerdown_req;
     qemu_register_powerdown_notifier(&s->powerdown_notifier);
 
-    intel_ich5_acpi_add_properties(s);
+    /* Properties for Qemu */
+    static const uint8_t acpi_enable_cmd = ACPI_ENABLE;
+    static const uint8_t acpi_disable_cmd = ACPI_DISABLE;
+    static const uint32_t gpe0_blk = 0x2c;
+    static const uint32_t gpe0_blk_len = 4;
+
+    object_property_add_uint8_ptr(OBJECT(s), ACPI_PM_PROP_ACPI_ENABLE_CMD, &acpi_enable_cmd, OBJ_PROP_FLAG_READ);
+    object_property_add_uint8_ptr(OBJECT(s), ACPI_PM_PROP_ACPI_DISABLE_CMD, &acpi_disable_cmd, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(OBJECT(s), ACPI_PM_PROP_GPE0_BLK, &gpe0_blk, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(OBJECT(s), ACPI_PM_PROP_GPE0_BLK_LEN, &gpe0_blk_len, OBJ_PROP_FLAG_READ);
+    object_property_add_uint16_ptr(OBJECT(s), ACPI_PM_PROP_SCI_INT, &s->sci_irq, OBJ_PROP_FLAG_READ);
+    object_property_add_uint32_ptr(OBJECT(s), ACPI_PM_PROP_PM_IO_BASE, &s->io_base, OBJ_PROP_FLAG_READ);
 }
 
 static Property intel_ich5_acpi_properties[] = {
-    DEFINE_PROP_UINT32("smb_io_base", Intel_ICH5_ACPI_State, smb_io_base, 0),
     DEFINE_PROP_UINT8("s4_val", Intel_ICH5_ACPI_State, s4_val, 2),
     DEFINE_PROP_BOOL("smm-compat", Intel_ICH5_ACPI_State, smm_compat, true),
     DEFINE_PROP_BOOL("smm-enabled", Intel_ICH5_ACPI_State, smm_enabled, true),

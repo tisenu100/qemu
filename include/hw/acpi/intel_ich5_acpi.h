@@ -47,9 +47,8 @@ struct Intel_ICH5_ACPI_State {
     /* Good old APM ports. B2h/B3h */
     APMState apm;
 
-    /* PIIX Compatible SMBus */
+    /* SMBus */
     PMSMBus smb;
-    uint32_t smb_io_base;
 
     /* SMI/SCI IRQ Handling */
     qemu_irq irq;
@@ -66,6 +65,10 @@ struct Intel_ICH5_ACPI_State {
     uint8_t smi_trap[2];
 
     MemoryRegion kbc_trap; /* Port 60-64h Trap */
+
+    /* SCI */
+    uint16_t sci_irq;
+    int sci_level;
 
     /* SMI/SCI Qemu Stuff */
     bool smm_enabled;
