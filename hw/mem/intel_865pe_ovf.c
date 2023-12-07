@@ -116,7 +116,7 @@ static void intel_865pe_ovf_realize(PCIDevice *dev, Error **errp)
 
     /* DRAM Handler (MMR) */
     memory_region_init_io(&d->dram, OBJECT(d), &dram_ops, d, "intel-865pe-ovf", 4 * KiB);
-    pci_register_bar(dev, 0, 0, &d->dram);
+    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &d->dram);
 }
 
 static void intel_865pe_ovf_class_init(ObjectClass *klass, void *data)

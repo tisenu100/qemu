@@ -30,6 +30,7 @@
 #include "qapi/error.h"
 #include "hw/pci/pci.h"
 #include "hw/ide/pci.h"
+#include "hw/irq.h"
 #include "trace.h"
 
 #include "hw/ide/piix.h"
@@ -98,31 +99,27 @@ static void bmdma_setup_bar(PCIIDEState *d)
     }
 }
 
-static void intel_ich5_ide_reset(DeviceState *s)
+static void intel_ich5_ide_update_irq(void *opaque, int n, int level)
 {
-    PCIIDEState *d = PCI_IDE(s);
-    PCIDevice *dev = PCI_DEVICE(d);
+    PCIDevice *dev = PCI_DEVICE(opaque);
+    PCIIDEState *s = PCI_IDE(opaque);
 
-    dev->config[0x06] = 0x80;
-    dev->config[0x07] = 0x02;
-    dev->config[0x09] = 0x8a;
-    dev->config[0x10] = 0x01;
-    dev->config[0x14] = 0x01;
-    dev->config[0x18] = 0x01;
-    dev->config[0x1c] = 0x01;
-    dev->config[0x20] = 0x01;
-    dev->config[0x3d] = 0x01;
+    if(dev->config[0x05] & 0x04) { /* Disallow any interrupt updates if the Interrupt Disable bit is set */
+        qemu_printf("Intel ICH5 IDE: Interrupt update request with requests disabled!\n");
+        level = 0;
+    }
 
-    ide_bus_reset(&d->bus[0]);
-    ide_bus_reset(&d->bus[1]);
+    if(level) /* Inform the Intel ICH5 IDE Controller that an interrupt update was given */
+        dev->config[0x06] |= 0x08;
+    else
+        dev->config[0x06] &= ~0x08;
 
-    pci_ide_update_mode(d);
+    qemu_set_irq(s->isa_irq[n % 2], level); /* n % 2 are for sanity purposes only */
 }
 
 static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
     PCIIDEState *s = PCI_IDE(dev);
-
     pci_default_write_config(dev, address, val, len);
 
     for(int i = 0; i < len; i++){
@@ -213,12 +210,33 @@ static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
 
         if(!ro_only) {
             dev->config[address + i] = new_val;
-            qemu_printf("Intel ICH5 IDE: dev->regs[0x%02x] = %02x\n", address + i, new_val);
+//            qemu_printf("Intel ICH5 IDE: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
     }
 
     if(address == 0x09) /* Whenever we update states. Call in the PCI IDE Handler */
-            pci_ide_update_mode(s);   
+        pci_ide_update_mode(s);
+}
+
+static void intel_ich5_ide_reset(DeviceState *s)
+{
+    PCIIDEState *d = PCI_IDE(s);
+    PCIDevice *dev = PCI_DEVICE(d);
+
+    dev->config[0x06] = 0x80;
+    dev->config[0x07] = 0x02;
+    dev->config[0x09] = 0x8a;
+    dev->config[0x10] = 0x01;
+    dev->config[0x14] = 0x01;
+    dev->config[0x18] = 0x01;
+    dev->config[0x1c] = 0x01;
+    dev->config[0x20] = 0x01;
+    dev->config[0x3d] = 0x01;
+
+    ide_bus_reset(&d->bus[0]);
+    ide_bus_reset(&d->bus[1]);
+
+    pci_ide_update_mode(d);
 }
 
 static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
@@ -226,8 +244,10 @@ static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
     PCIIDEState *d = PCI_IDE(dev);
     DeviceState *s = DEVICE(dev);
 
-    /* Primary Drives */
+    /* Tie IRQs up */
+    qdev_init_gpio_in(s, intel_ich5_ide_update_irq, ARRAY_SIZE(d->bus));
 
+    /* Primary Drives */
     memory_region_init_io(&d->data_bar[0], OBJECT(d), &pci_ide_data_le_ops, &d->bus[0], "intel-ich5-ide-primary-control", 8);
     pci_register_bar(dev, 0, PCI_BASE_ADDRESS_SPACE_IO, &d->data_bar[0]);
 
@@ -235,7 +255,7 @@ static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
     pci_register_bar(dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &d->cmd_bar[0]);
 
     ide_bus_init(&d->bus[0], sizeof(d->bus[0]), s, 0, 2);
-    ide_bus_init_output_irq(&d->bus[0], isa_get_irq(NULL, 14));
+    ide_bus_init_output_irq(&d->bus[0], qdev_get_gpio_in(s, 0));
     bmdma_init(&d->bus[0], &d->bmdma[0], d);
     ide_bus_register_restart_cb(&d->bus[0]);
 
@@ -247,7 +267,7 @@ static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
     pci_register_bar(dev, 3, PCI_BASE_ADDRESS_SPACE_IO, &d->cmd_bar[1]);
 
     ide_bus_init(&d->bus[1], sizeof(d->bus[1]), s, 1, 2);
-    ide_bus_init_output_irq(&d->bus[1], isa_get_irq(NULL, 15));
+    ide_bus_init_output_irq(&d->bus[1], qdev_get_gpio_in(s, 1));
     bmdma_init(&d->bus[1], &d->bmdma[1], d);
     ide_bus_register_restart_cb(&d->bus[1]);
 
@@ -256,7 +276,7 @@ static void intel_ich5_ide_realize(PCIDevice *dev, Error **errp)
     pci_register_bar(dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &d->bmdma_bar);
 }
 
-static void pci_piix_ide_exitfn(PCIDevice *dev)
+static void intel_ich5_ide_exitfn(PCIDevice *dev)
 {
     PCIIDEState *d = PCI_IDE(dev);
 
@@ -276,7 +296,7 @@ static void intel_ich5_ide_class_init(ObjectClass *klass, void *data)
     k->config_write = intel_ich5_ide_write;
     k->config_read = pci_default_read_config;
     k->realize = intel_ich5_ide_realize;
-    k->exit = pci_piix_ide_exitfn;
+    k->exit = intel_ich5_ide_exitfn;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
     k->device_id = PCI_DEVICE_ID_INTEL_ICH5_IDE;
     k->class_id = PCI_CLASS_STORAGE_IDE;

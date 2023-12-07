@@ -57,7 +57,7 @@ static void intel_ich5_acpi(int msb, int lsb, int en, Intel_ICH5_ACPI_State *acp
 {
     acpi->io_base = ((msb << 8) | lsb) & 0xffc0;
 
-    if(en)
+    if(!!en)
         qemu_printf("Intel ICH5 LPC: ACPI base updated to 0x%04x\n", acpi->io_base);
     else
         qemu_printf("Intel ICH5 LPC: ACPI is disabled\n");
@@ -504,6 +504,7 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     dev->config[0x69] = 0x80;
     dev->config[0x6a] = 0x80;
     dev->config[0x6b] = 0x80;
+    dev->config[0xa0] = 0xff;
     dev->config[0xa8] = 0x0d;
     dev->config[0xd0] = 0x04;
     dev->config[0xe3] = 0xff;

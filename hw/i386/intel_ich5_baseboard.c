@@ -339,7 +339,10 @@ static void pc_init1(MachineState *machine)
     /* IDE Compatible Drives */
     qemu_printf("PC: Loading IDE...\n");
     PCIDevice *intel_ich5_ide = pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 0x01), TYPE_INTEL_ICH5_IDE);
+    PCIIDEState *ide = PCI_IDE(intel_ich5_ide);
     pci_ide_create_devs(intel_ich5_ide);
+    qdev_connect_gpio_out_named(DEVICE(ide), "isa-irq", 0, x86ms->gsi[14]);
+    qdev_connect_gpio_out_named(DEVICE(ide), "isa-irq", 1, x86ms->gsi[15]);
 
     /* Create UHCI Compatible Controllers */
     /* These are Qemu Standard Devices    */
