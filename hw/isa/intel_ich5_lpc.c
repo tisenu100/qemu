@@ -453,9 +453,8 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
         case 0x69:
         case 0x6a:
         case 0x6b:
-            pci_bus_fire_intx_routing_notifier(pci_get_bus(&d->dev));
             /*
-               Per Intel ICH5 datasheet
+               Per Intel ICH5 datasheet. The PIRQs are categorized as this:
                0x60 PIRQA#
                0x61 PIRQB#
                0x62 PIRQC#
@@ -465,6 +464,7 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                0x6a PIRQG#
                0x6b PIRQH#
             */
+            pci_bus_fire_intx_routing_notifier(pci_get_bus(&d->dev));
             intel_ich5_pirq(d);
         break;
 
@@ -504,7 +504,6 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     dev->config[0x69] = 0x80;
     dev->config[0x6a] = 0x80;
     dev->config[0x6b] = 0x80;
-    dev->config[0xa0] = 0xff;
     dev->config[0xa8] = 0x0d;
     dev->config[0xd0] = 0x04;
     dev->config[0xe3] = 0xff;
@@ -520,6 +519,7 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     dev->config[0x41] = d->pme_conf[0x41];
     dev->config[0x44] = d->pme_conf[0x44];
 
+    /* PME registers remain as they were even after reset */
     for(int i = 0; i < 4; i++)
         dev->config[0xb8 + i] = d->pme_conf[0xb8 + i];
 
