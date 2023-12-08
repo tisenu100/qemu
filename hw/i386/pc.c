@@ -79,11 +79,6 @@
     { "qemu64-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },\
     { "athlon-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },
 
-GlobalProperty pc_compat_8_1[] = { /* Intel Pentium 4 doesn't have L3 Cache Support */
-    { "netburst", "l3-cache", "off" },
-};
-const size_t pc_compat_8_1_len = G_N_ELEMENTS(pc_compat_8_1);
-
 GlobalProperty pc_compat_8_0[] = {
     { "virtio-mem", "unplugged-inaccessible", "auto" },
 };

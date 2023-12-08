@@ -61,6 +61,7 @@ typedef struct UHCIState {
     bool completions_only;
     UHCIPort ports[NB_PORTS];
     qemu_irq irq;
+    qemu_irq smi_irq; /* For Legacy USB SMI trigger */
     /* Interrupts that should be raised at the end of the current frame.  */
     uint32_t pending_int_mask;
 

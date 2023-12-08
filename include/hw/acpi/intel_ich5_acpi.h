@@ -49,6 +49,7 @@ struct Intel_ICH5_ACPI_State {
 
     /* SMBus */
     PMSMBus smb;
+    uint16_t smb_io_base;
 
     /* SMI/SCI IRQ Handling */
     qemu_irq irq;

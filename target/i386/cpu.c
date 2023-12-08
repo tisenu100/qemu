@@ -2493,17 +2493,17 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .model_id = "",
     },
     {
-        .name = "netburst", /* Intel Celeron D 320 */
+        .name = "netburst", /* Intel Pentium 4 Extreme Edition */
         .level = 5,
         .vendor = CPUID_VENDOR_INTEL,
         .family = 15,
-        .model = 3,
-        .stepping = 4,
+        .model = 2,
+        .stepping = 5,
         .features[FEAT_1_ECX] = 0x00000001, /* 0x0000441d */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
         .xlevel = 0x80000008,
 //        .cache_info = &netburst_cache_info,
-        .model_id = "Intel(R) Celeron(R) D CPU 3.46GHz",
+        .model_id = "Intel(R) Pentium(R) 4 CPU 3.20GHz",
     },
     {
         .name = "netburst_x64", /* Intel Pentium 4 Extreme Edition */

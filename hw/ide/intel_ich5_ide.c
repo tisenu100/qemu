@@ -103,6 +103,7 @@ static void intel_ich5_ide_update_irq(void *opaque, int n, int level)
 {
     PCIDevice *dev = PCI_DEVICE(opaque);
     PCIIDEState *s = PCI_IDE(opaque);
+    int mode = dev->config[0x09] & 0x0f;
 
     if(dev->config[0x05] & 0x04) { /* Disallow any interrupt updates if the Interrupt Disable bit is set */
         qemu_printf("Intel ICH5 IDE: Interrupt update request with requests disabled!\n");
@@ -114,7 +115,10 @@ static void intel_ich5_ide_update_irq(void *opaque, int n, int level)
     else
         dev->config[0x06] &= ~0x08;
 
-    qemu_set_irq(s->isa_irq[n % 2], level); /* n % 2 are for sanity purposes only */
+    if(mode == 0x0f) /* IDE will assert the INTA# pin if ran on native mode */
+        pci_set_irq(dev, level);
+    else /* otherwise assert the legacy IRQ 14/15 instead */
+        qemu_set_irq(s->isa_irq[n % 2], level); /* n % 2 are for sanity purposes only */
 }
 
 static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val, int len)
@@ -141,7 +145,7 @@ static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
             break;
 
             case 0x09:
-                new_val = new_val & 0x1f;
+                new_val = new_val & 0x15;
                 new_val |= 0x8a;
             break;
 
@@ -195,6 +199,7 @@ static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
             case 0x11:
             case 0x15:
             case 0x19:
+            case 0x21:
             case 0x1d:
             case 0x3c:
             case 0x40:
@@ -214,8 +219,10 @@ static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
         }
     }
 
-    if(address == 0x09) /* Whenever we update states. Call in the PCI IDE Handler */
+    if(address == 0x09) { /* Whenever we update states. Call in the PCI IDE Handler */
+        qemu_printf("Intel ICH5 IDE: Drives are running in %s mode\n", ((dev->config[0x09] & 0x0f) == 0x0f) ? "Native" : "Legacy");
         pci_ide_update_mode(s);
+    }
 }
 
 static void intel_ich5_ide_reset(DeviceState *s)

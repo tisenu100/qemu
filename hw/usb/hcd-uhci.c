@@ -27,6 +27,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "hw/core/cpu.h"
 #include "hw/usb.h"
 #include "hw/usb/uhci-regs.h"
 #include "migration/vmstate.h"
@@ -42,7 +43,7 @@
 #include "qemu/module.h"
 #include "qom/object.h"
 #include "hcd-uhci.h"
-
+#include "qemu/qemu-print.h"
 #define FRAME_TIMER_FREQ 1000
 
 #define FRAME_MAX_LOOPS  256
@@ -289,6 +290,8 @@ static UHCIAsync *uhci_async_find_td(UHCIState *s, uint32_t td_addr)
 
 static void uhci_update_irq(UHCIState *s)
 {
+//    PCIDevice *dev = PCI_DEVICE(s);
+
     int level = 0;
     if (((s->status2 & 1) && (s->intr & (1 << 2))) ||
         ((s->status2 & 2) && (s->intr & (1 << 3))) ||
@@ -298,7 +301,12 @@ static void uhci_update_irq(UHCIState *s)
         (s->status & UHCI_STS_HCPERR)) {
         level = 1;
     }
-    qemu_set_irq(s->irq, level);
+// Not yet
+//    if(dev->config[0xc0] & 0x10){ /* Legacy USB SMI */
+//        qemu_set_irq(s->smi_irq, level);
+//    }
+//    else
+        qemu_set_irq(s->irq, level);
 }
 
 static void uhci_reset(DeviceState *dev)
@@ -1169,6 +1177,7 @@ void usb_uhci_common_realize(PCIDevice *dev, Error **errp)
     pci_conf[USB_SBRN] = USB_RELEASE_1; /* release number */
     pci_config_set_interrupt_pin(pci_conf, u->info.irq_pin + 1);
     s->irq = pci_allocate_irq(dev);
+    qdev_init_gpio_out_named(DEVICE(s), &s->smi_irq, "smi-irq", 0); /* Legacy SMI Trigger */
 
     if (s->masterbus) {
         USBPort *ports[NB_PORTS];
@@ -1238,6 +1247,12 @@ static Property uhci_properties_standalone[] = {
     DEFINE_PROP_END_OF_LIST(),
 };
 
+static void uchi_init(Object *obj)
+{
+    UHCIState *s = UHCI(obj);
+    qdev_init_gpio_out_named(DEVICE(obj), &s->smi_irq, "smi-irq", 1);
+}
+
 static void uhci_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -1252,6 +1267,7 @@ static void uhci_class_init(ObjectClass *klass, void *data)
 static const TypeInfo uhci_pci_type_info = {
     .name = TYPE_UHCI,
     .parent = TYPE_PCI_DEVICE,
+    .instance_init  = uchi_init,
     .instance_size = sizeof(UHCIState),
     .class_size    = sizeof(UHCIPCIDeviceClass),
     .abstract = true,

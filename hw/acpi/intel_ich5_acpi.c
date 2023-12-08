@@ -386,9 +386,18 @@ static void intel_ich5_smbus_features(int val, Intel_ICH5_ACPI_State *s) {
     qemu_printf("Intel ICH5 SMBus: I2C Capabilities were %s!\n", i2c_enable ? "enabled" : "disabled");
 }
 
+static void intel_ich5_smbus_irq_update(PMSMBus *smb, bool enabled)
+{
+    Intel_ICH5_ACPI_State *s = smb->opaque;
+    PCIDevice *dev = PCI_DEVICE(s);
+
+    if(!(dev->config[0x04] & 0x04)) /* Don't assert INTB# if it's disabled */
+        pci_set_irq(dev, enabled);
+}
+
 static void intel_ich5_smbus_write_config(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
-    Intel_ICH5_ACPI_State *ich5_acpi = INTEL_ICH5_ACPI(dev);
+    Intel_ICH5_ACPI_State *acpi = INTEL_ICH5_ACPI(dev);
     pci_default_write_config(dev, address, val, len);
 
     for(int i = 0; i < len; i++){
@@ -445,12 +454,13 @@ static void intel_ich5_smbus_write_config(PCIDevice *dev, uint32_t address, uint
         case 0x04:
         case 0x20:
         case 0x21:
+            acpi->smb_io_base = (dev->config[0x21] << 8) | (dev->config[0x20]);
             if(dev->config[0x04] & 1)
-                qemu_printf("Intel ICH5 SMBus: SMBus enabled on address 0x%04x\n", ((dev->config[0x21] << 8) | (dev->config[0x20])) & 0xffc0);
+                qemu_printf("Intel ICH5 SMBus: SMBus enabled on address 0x%04x\n", acpi->smb_io_base & 0xffc0);
         break;
 
         case 0x40:
-            intel_ich5_smbus_features(dev->config[0x40], ich5_acpi);
+            intel_ich5_smbus_features(dev->config[0x40], acpi);
         break;
     }
 }
@@ -483,8 +493,6 @@ static void intel_ich5_acpi_reset(DeviceState *dev)
     Intel_ICH5_ACPI_State *s = INTEL_ICH5_ACPI(dev);
     PCIDevice *d = PCI_DEVICE(dev);
 
-    s->ar.pm1.evt.sts |= 0x0020;
-
     acpi_pm1_evt_reset(&s->ar);
     s->ar.pm1.cnt.cnt = 0x0001;
 
@@ -498,6 +506,8 @@ static void intel_ich5_acpi_reset(DeviceState *dev)
     d->config[0x07] = 0x02;
     d->config[0x20] = 0x01;
     d->config[0x3d] = 0x02;
+
+    pci_default_write_config(d, 0x20, s->smb_io_base, 2);
 }
 
 static void intel_ich5_acpi_powerdown_req(Notifier *n, void *opaque)
@@ -508,20 +518,16 @@ static void intel_ich5_acpi_powerdown_req(Notifier *n, void *opaque)
     acpi_pm1_evt_power_down(&s->ar);
 }
 
-static void intel_ich5_acpi_init(Object *obj)
-{
-    Intel_ICH5_ACPI_State *s = INTEL_ICH5_ACPI(obj);
-
-    /* SMI Interrupt */
-    qdev_init_gpio_out_named(DEVICE(obj), &s->smi_irq, "smi-irq", 1);
-}
-
 static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
 {
     Intel_ICH5_ACPI_State *s = INTEL_ICH5_ACPI(dev);
 
     /* SMBus */
-    pm_smbus_init(DEVICE(dev), &s->smb, true);
+    pm_smbus_init(DEVICE(dev), &s->smb, false);
+    dev->config[0x3d] = 0x02; /* SMBus utilizes INTB# */
+    s->smb.set_irq = intel_ich5_smbus_irq_update;
+    s->smb.opaque = s;
+    s->smb_io_base = 0;
     pci_register_bar(dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &s->smb.io);
     qemu_printf("Intel ICH5 SMBus: SMBus is up!\n");
 
@@ -594,6 +600,14 @@ static Property intel_ich5_acpi_properties[] = {
     DEFINE_PROP_BOOL("x-not-migrate-acpi-index", Intel_ICH5_ACPI_State, not_migrate_acpi_index, true),
     DEFINE_PROP_END_OF_LIST(),
 };
+
+static void intel_ich5_acpi_init(Object *obj)
+{
+    Intel_ICH5_ACPI_State *s = INTEL_ICH5_ACPI(obj);
+
+    /* SMI Interrupt */
+    qdev_init_gpio_out_named(DEVICE(obj), &s->smi_irq, "smi-irq", 1);
+}
 
 static void intel_ich5_acpi_class_init(ObjectClass *klass, void *data)
 {

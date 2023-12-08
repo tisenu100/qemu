@@ -112,7 +112,7 @@ static int lpc_pirq(PCIDevice *pci_dev, int pci_intx)
         break;
 
         default:
-            qemu_printf("LPC PIRQ: Invalid Slot Assignment %d", PCI_SLOT(pci_dev->devfn));
+            qemu_printf("LPC PIRQ: Invalid Slot Assignment %d\n", PCI_SLOT(pci_dev->devfn));
             pirq_table = 0x3210;
         break;
     }
@@ -156,7 +156,7 @@ static int hub_pirq(PCIDevice *pci_dev, int pci_intx)
         break;
 
         default:
-            qemu_printf("HUB PIRQ: Invalid Slot Assignment %d", PCI_SLOT(pci_dev->devfn));
+            qemu_printf("HUB PIRQ: Invalid Slot Assignment %d\n", PCI_SLOT(pci_dev->devfn));
             pirq_table = 0x3210;
         break;
     }
@@ -325,7 +325,10 @@ static void pc_init1(MachineState *machine)
     pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, false, 0x08); /* VLSI Logic */
     object_property_add_link(OBJECT(machine), "rtc_state", TYPE_ISA_DEVICE, (Object **)&x86ms->rtc, object_property_allow_set_link, OBJ_PROP_LINK_STRONG); /* NVR */
     object_property_set_link(OBJECT(machine), "rtc_state", OBJECT(rtc_state), &error_abort);
-    pc_i8259_create(isa_bus, gsi_state->i8259_irq); /* PIC Controller */
+
+    if (x86ms->pic == ON_OFF_AUTO_ON || x86ms->pic == ON_OFF_AUTO_AUTO) {
+        pc_i8259_create(isa_bus, gsi_state->i8259_irq); /* PIC Controller */
+    }
 
     /*
         Winbond W83827HF LPC Super I/O. Used by most Pentium 4 boards.
@@ -347,21 +350,24 @@ static void pc_init1(MachineState *machine)
     /* Create UHCI Compatible Controllers */
     /* These are Qemu Standard Devices    */
     qemu_printf("PC: Loading USB...\n");
-    pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1d, 0), TYPE_INTEL_ICH5_UHCI(0));
-    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 1), TYPE_INTEL_ICH5_UHCI(1));
-    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 2), TYPE_INTEL_ICH5_UHCI(2));
-    pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 3), TYPE_INTEL_ICH5_UHCI(3));
+    PCIDevice *intel_ich5_uhci[4];
+    intel_ich5_uhci[0] = pci_create_simple_multifunction(pci_bus, PCI_DEVFN(0x1d, 0), TYPE_INTEL_ICH5_UHCI(0));
+    intel_ich5_uhci[1] = pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 1), TYPE_INTEL_ICH5_UHCI(1));
+    intel_ich5_uhci[2] = pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 2), TYPE_INTEL_ICH5_UHCI(2));
+    intel_ich5_uhci[3] = pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 3), TYPE_INTEL_ICH5_UHCI(3));
     pci_create_simple(pci_bus, PCI_DEVFN(0x1d, 7), "intel-ich5-ehci");
 
+    UHCIState *uhci[4];
+    for(int i = 0; i < 4; i++)
+        uhci[i] = UHCI(intel_ich5_uhci[i]);
+    
     /* ACPI */
     qemu_printf("PC: Loading ACPI...\n");
-    PCIDevice *intel_ich5_acpi = pci_new(PCI_DEVFN(0x1f, 3), TYPE_INTEL_ICH5_ACPI);;
+    PCIDevice *intel_ich5_acpi = pci_new(PCI_DEVFN(0x1f, 3), TYPE_INTEL_ICH5_ACPI);
+    Intel_ICH5_ACPI_State *acpi = INTEL_ICH5_ACPI(intel_ich5_acpi);
 
     /* We expect a prebaked ACPI Table from the BIOS */
     pcms->acpi_build_enabled = 0;
-
-    /* Create a Intel ICH5 Compatible ACPI device */
-    Intel_ICH5_ACPI_State *acpi = INTEL_ICH5_ACPI(intel_ich5_acpi);
 
     /* Checks if SMM exists. We do a Pentium 4 machine which makes SMM presence mandatory. */
     qdev_prop_set_bit(DEVICE(intel_ich5_acpi), "smm-enabled", kvm_enabled() ? kvm_has_smm() : 1);
@@ -372,6 +378,9 @@ static void pc_init1(MachineState *machine)
     /* SMI Trigger */
     qemu_irq smi_irq = qemu_allocate_irq(pc_acpi_smi_interrupt, first_cpu, 0);
     qdev_connect_gpio_out_named(DEVICE(intel_ich5_acpi), "smi-irq", 0, smi_irq);
+
+    for(int i = 0; i < 4; i++)
+        qdev_connect_gpio_out_named(DEVICE(uhci[i]), "smi-irq", 0, smi_irq);
 
     /* SMBus */
     /* Initialize the SMBus*/
