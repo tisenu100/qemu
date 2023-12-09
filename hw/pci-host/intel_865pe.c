@@ -204,7 +204,8 @@ static void intel_865pe_write_config(PCIDevice *dev, uint32_t address, uint32_t 
             break;
 
             case 0xa9:
-                new_val = new_val & 0x1f;
+                new_val = new_val & 0x1e;
+                new_val |= 0x01;
             break;
 
             case 0xb0:
@@ -449,6 +450,7 @@ static void intel_865pe_reset(DeviceState *s)
     dev->config[0xa4] = 0x17;
     dev->config[0xa5] = 0x02;
     dev->config[0xa7] = 0x1f;
+    dev->config[0xa9] = 0x01; /* AGP Enabled */
     dev->config[0xbc] = 0x10;
     dev->config[0xbd] = 0x10;
     dev->config[0xc5] = 0x04;

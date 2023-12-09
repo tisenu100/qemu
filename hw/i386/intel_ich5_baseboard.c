@@ -325,10 +325,7 @@ static void pc_init1(MachineState *machine)
     pc_basic_device_init(pcms, isa_bus, x86ms->gsi, rtc_state, false, 0x08); /* VLSI Logic */
     object_property_add_link(OBJECT(machine), "rtc_state", TYPE_ISA_DEVICE, (Object **)&x86ms->rtc, object_property_allow_set_link, OBJ_PROP_LINK_STRONG); /* NVR */
     object_property_set_link(OBJECT(machine), "rtc_state", OBJECT(rtc_state), &error_abort);
-
-    if (x86ms->pic == ON_OFF_AUTO_ON || x86ms->pic == ON_OFF_AUTO_AUTO) {
-        pc_i8259_create(isa_bus, gsi_state->i8259_irq); /* PIC Controller */
-    }
+    pc_i8259_create(isa_bus, gsi_state->i8259_irq); /* PIC Controller */
 
     /*
         Winbond W83827HF LPC Super I/O. Used by most Pentium 4 boards.

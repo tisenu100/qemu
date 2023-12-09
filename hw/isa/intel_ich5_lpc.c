@@ -152,28 +152,28 @@ static PCIINTxRoute route_intx_pin_to_irq(void *opaque, int pin)
     return route;
 }
 
-static void intel_ich5_pirq(Intel_ICH5_LPC_State *d) /* The PIRQ Router */
+static void intel_ich5_pirq(int pirq, Intel_ICH5_LPC_State *d) /* The PIRQ Router */
 {
     PCIDevice *dev = &d->dev;
 
-    for(int i = 0; i < 8; i++){
-        int pic_irq = intel_ich5_irq_table(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x0f); /* Pick up the IRQ from the table */
-        int enabled = !(dev->config[0x60 + ((i > 3) ? i + 4 : i)] & 0x80) && (pic_irq != 0); /* Check if the the PIRQ is asserted & if the IRQ value is valid on the table */
+        int pic_irq = intel_ich5_irq_table(dev->config[0x60 + ((pirq > 3) ? pirq + 4 : pirq)] & 0x0f); /* Pick up the IRQ from the table */
+        int enabled = !(dev->config[0x60 + ((pirq > 3) ? pirq + 4 : pirq)] & 0x80) && (pic_irq != 0); /* Check if the the PIRQ is asserted & if the IRQ value is valid on the table */
 
         d->pic_level = 0;
 
         if(!enabled)
-            pic_irq = 16 + i;
+            pic_irq = 16 + pirq;
 
-        d->pic_level |= pci_bus_get_irq_level(pci_get_bus(dev), i);
+        qemu_printf("Intel ICH5 LPC: PIRQ %c raised on IRQ %d\n", 'A' + pirq, pic_irq);
+
+        d->pic_level |= pci_bus_get_irq_level(pci_get_bus(dev), pirq);
         qemu_set_irq(d->lpc_irqs_in[pic_irq], d->pic_level);
-    }
 }
 
-static void intel_ich5_set_irq(void *opaque, int pirq, int level)
+static void intel_ich5_lpc_raise_pirq(void *opaque, int pirq, int level)
 {
     Intel_ICH5_LPC_State *d = opaque;
-    intel_ich5_pirq(d);
+    intel_ich5_pirq(pirq, d);
 }
 
 static void intel_ich5_nvr_reset(Intel_ICH5_LPC_State *s)
@@ -465,7 +465,6 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                0x6b PIRQH#
             */
             pci_bus_fire_intx_routing_notifier(pci_get_bus(&d->dev));
-            intel_ich5_pirq(d);
         break;
 
         case 0xd8:
@@ -533,16 +532,7 @@ static void intel_ich5_lpc_reset(DeviceState *s)
     intel_ich5_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, d->acpi);
     intel_ich5_acpi_irq(dev->config[0x44], d);
     intel_ich5_gpio(0, 0, 0);
-    intel_ich5_pirq(d);
     intel_ich5_nvr_reset(d);
-}
-
-static int intel_ich5_lpc_post_load(void *opaque, int version_id)
-{
-    Intel_ICH5_LPC_State *dev = opaque;
-
-    intel_ich5_pirq(dev);
-    return 0;
 }
 
 static int intel_ich5_lpc_pre_save(void *opaque)
@@ -578,7 +568,6 @@ static const VMStateDescription vmstate_intel_ich5_lpc = {
     .name = "Intel ICH5 LPC",
     .version_id = 1,
     .minimum_version_id = 1,
-    .post_load = intel_ich5_lpc_post_load,
     .pre_save = intel_ich5_lpc_pre_save,
     .fields = (VMStateField[]) {
         VMSTATE_PCI_DEVICE(dev, Intel_ICH5_LPC_State),
@@ -703,7 +692,7 @@ static void intel_ich5_lpc_realize(PCIDevice *dev, Error **errp)
     intel_ich5_realize(dev, errp);
     if (*errp) return;
 
-    pci_bus_irqs(pci_bus, intel_ich5_set_irq, d, 8);
+    pci_bus_irqs(pci_bus, intel_ich5_lpc_raise_pirq, d, 8);
     pci_bus_set_route_irq_fn(pci_bus, route_intx_pin_to_irq);
 }
 

@@ -3707,7 +3707,7 @@ static int kvm_get_msrs(X86CPU *cpu)
     kvm_msr_buf_reset(cpu);
 
     /* Pentium 4 Frequency MSR */
-    kvm_msr_entry_add(cpu, MSR_P4_CPU_FREQ, 0x11120011);
+    kvm_msr_entry_add(cpu, MSR_P4_CPU_FREQ, 0x0f12010f);
 
     kvm_msr_entry_add(cpu, MSR_IA32_SYSENTER_CS, 0);
     kvm_msr_entry_add(cpu, MSR_IA32_SYSENTER_ESP, 0);

@@ -322,7 +322,7 @@ void helper_rdmsr(CPUX86State *env)
 
     switch ((uint32_t)env->regs[R_ECX]) {
     case MSR_P4_CPU_FREQ: /* Pentium 4's CPU Frequency MSR. Needed by some BIOSes to be happy */
-        val = 0x11120011;
+        val = 0x0f12010f;
     break;
     case MSR_IA32_SYSENTER_CS:
         val = env->sysenter_cs;

@@ -1836,20 +1836,20 @@ static const CPUCaches netburst_cache_info = {
     .l2_cache = &(CPUCacheInfo) {
         .type = UNIFIED_CACHE,
         .level = 2,
-        .size = 1 * MiB,
+        .size = 512 * KiB,
         .line_size = 64,
         .associativity = 8,
         .partitions = 1,
-        .sets = 256,
+        .sets = 1024,
     },
     .l3_cache = &(CPUCacheInfo) {
         .type = UNIFIED_CACHE,
         .level = 1,
-        .size = 1 * MiB,
+        .size = 2 * MiB,
         .line_size = 64,
         .associativity = 8,
         .partitions = 1,
-        .sets = 256,
+        .sets = 2048,
     },
 };
 */
@@ -2499,11 +2499,13 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .family = 15,
         .model = 2,
         .stepping = 5,
-        .features[FEAT_1_ECX] = 0x00000001, /* 0x0000441d */
+        .features[FEAT_1_ECX] = 0x00000000, /* 0x00004400 */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
+        .features[FEAT_8000_0001_ECX] = 0x00000000,
+        .features[FEAT_8000_0001_EDX] = 0x00000000,
         .xlevel = 0x80000008,
 //        .cache_info = &netburst_cache_info,
-        .model_id = "Intel(R) Pentium(R) 4 CPU 3.20GHz",
+        .model_id = "Intel(R) Pentium(R) 4 CPU 3.40GHz",
     },
     {
         .name = "netburst_x64", /* Intel Pentium 4 Extreme Edition */
@@ -2514,6 +2516,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .stepping = 3,
         .features[FEAT_1_ECX] = 0x00002001, /* 0x0000649d */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
+        .features[FEAT_8000_0001_ECX] = 0x00000000,
         .features[FEAT_8000_0001_EDX] = 0x00100000,
         .xlevel = 0x80000008,
 //        .cache_info = &netburst_cache_info,
