@@ -55,8 +55,9 @@ enum {
     AC97_6Ch_Vol_L_R_Surround_Mute = 0x38,
     AC97_SPDIF_Control             = 0x3a,
     AC97_SPDIF_DAC_Volume          = 0x64,
-    AC97_SPDIF_CEN_LFE_DAC_Volume  = 0x66,
-    AC97_Multichannel              = 0x6a,
+    AC97_Sense_Function_Select     = 0x66,
+    AC97_Sense_Function_Information= 0x68,
+    AC97_Sense_Detail              = 0x6a,
     AC97_Extension_Control         = 0x7a,
     AC97_Vendor_ID1                = 0x7c,
     AC97_Vendor_ID2                = 0x7e

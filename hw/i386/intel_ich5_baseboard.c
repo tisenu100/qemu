@@ -336,6 +336,10 @@ static void pc_init1(MachineState *machine)
     ISADevice *winbond = isa_new(TYPE_WINBOND_W83627HF); /* Winbond W83827HF */
     isa_realize_and_unref(winbond, isa_bus, &error_fatal); /* Mount it to the LPC bus */
 
+    /* SATA Dummy Controller */
+    /* Keep it disabled for now */
+//    pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 0x02), TYPE_INTEL_ICH5_SATA);
+
     /* IDE Compatible Drives */
     qemu_printf("PC: Loading IDE...\n");
     PCIDevice *intel_ich5_ide = pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 0x01), TYPE_INTEL_ICH5_IDE);

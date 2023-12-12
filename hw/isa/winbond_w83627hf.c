@@ -254,8 +254,6 @@ const VMStateDescription vmstate_winbond = {
         VMSTATE_UINT8_ARRAY(regs, WinbondState, 0x30),
         VMSTATE_UINT8_2DARRAY(ldn_regs, WinbondState, 12, 0xff),
         VMSTATE_UINT16(fdc_io_base, WinbondState),
-        VMSTATE_UINT16(lpt_io_base, WinbondState),
-        VMSTATE_UINT16_ARRAY(uart_io_base, WinbondState, 2),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -285,11 +283,6 @@ static void winbond_reset_actual(WinbondState *d)
     d->ldn_regs[0][0x74] = 0x04;
     d->ldn_regs[0][0xf0] = 0x0e;
     d->ldn_regs[0][0xf2] = 0xff;
-
-    d->ldn_regs[2][0x30] = 0x01;
-    d->ldn_regs[2][0x60] = 0x03;
-    d->ldn_regs[2][0x61] = 0xf8;
-    d->ldn_regs[2][0x70] = 0x04;
 
     winbond_remap_fdc(d);
     winbond_remap_fdc_irq(d);

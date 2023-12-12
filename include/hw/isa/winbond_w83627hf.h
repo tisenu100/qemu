@@ -29,16 +29,6 @@ typedef struct WinbondState {
     ISADevice *fd;
     uint16_t fdc_io_base;
     FDCtrl fdc;
-
-    /* LPT */
-    ISADevice *parallel;
-    uint16_t lpt_io_base;
-    ParallelState lpt;
-
-    /* UARTs */
-    ISADevice *serial[2];
-    uint16_t uart_io_base[2];
-    SerialState uart[2];
 } WinbondState;
 
 #endif /* WINBOND_H */

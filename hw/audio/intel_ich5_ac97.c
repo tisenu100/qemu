@@ -23,6 +23,7 @@
 #include "qemu/osdep.h"
 #include "hw/audio/soundhw.h"
 #include "audio/audio.h"
+#include "hw/irq.h"
 #include "hw/pci/pci_device.h"
 #include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
@@ -138,6 +139,7 @@ struct Intel_ICH5_AC97_State {
     SWVoiceIn *voice_mc2;
     int invalid_freq[3];
     uint8_t silence[128];
+    qemu_irq irq;
     int bup_flag;
     MemoryRegion io_nam;
     MemoryRegion io_nabm;
@@ -235,10 +237,10 @@ static void update_sr(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r, uin
 
     if (level) {
         s->glob_sta |= masks[r - s->bm_regs];
-        pci_irq_assert(&s->dev);
+        qemu_set_irq(s->irq, 1);
     } else {
         s->glob_sta &= ~masks[r - s->bm_regs];
-        pci_irq_deassert(&s->dev);
+        qemu_set_irq(s->irq, 0);
     }
 }
 
@@ -276,6 +278,20 @@ static void reset_bm_regs(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r)
 
     voice_set_active(s, r - s->bm_regs, 0);
     memset(s->silence, 0, sizeof(s->silence));
+}
+
+static void intel_ich5_ac97_raise_irq(void *opaque, int n, int level)
+{
+    Intel_ICH5_AC97_State *s = opaque;
+    PCIDevice *dev = PCI_DEVICE(opaque);
+    
+    if(s->mixer_data[0x25] & 0x04) /* Check if interrupts can be raised in first place */
+        level = 1;
+
+    if(level)
+        s->mixer_data[0x25] |= 0x80; /* Inform that an IRQ was raised */
+
+    pci_set_irq(dev, level);
 }
 
 static void mixer_store(Intel_ICH5_AC97_State *s, uint32_t i, uint16_t v)
@@ -404,17 +420,14 @@ static void set_volume(Intel_ICH5_AC97_State *s, int index, uint32_t val)
 {
     switch (index) {
     case AC97_Master_Volume_Mute:
-        val &= 0x9f1f;
         mixer_store(s, index, val);
         update_combined_volume_out(s);
         break;
     case AC97_PCM_Out_Volume_Mute:
-        val &= 0x9f1f;
         mixer_store(s, index, val);
         update_combined_volume_out(s);
         break;
     case AC97_Record_Gain_Mute:
-        val &= 0x805f;
         mixer_store(s, index, val);
         update_volume_in(s);
         break;
@@ -434,10 +447,8 @@ static void mixer_reset(Intel_ICH5_AC97_State *s)
 
     memset(s->mixer_data, 0, sizeof(s->mixer_data));
     memset(active, 0, sizeof(active));
-    mixer_store(s, AC97_Reset, 0x0000);
     mixer_store(s, AC97_Headphone_Volume_Mute, 0x8000);
     mixer_store(s, AC97_Master_Volume_Mono_Mute, 0x8000);
-    mixer_store(s, AC97_Master_Tone_RL, 0x0000);
     mixer_store(s, AC97_PC_BEEP_Volume_Mute, 0x8000);
     mixer_store(s, AC97_Phone_Volume_Mute, 0x8008);
     mixer_store(s, AC97_Mic_Volume_Mute, 0x8008);
@@ -445,15 +456,7 @@ static void mixer_reset(Intel_ICH5_AC97_State *s)
     mixer_store(s, AC97_CD_Volume_Mute, 0x8808);
     mixer_store(s, AC97_Video_Volume_Mute, 0x8000);
     mixer_store(s, AC97_Aux_Volume_Mute, 0x8808);
-    mixer_store(s, AC97_Record_Gain_Mic_Mute, 0x0000);
-    mixer_store(s, AC97_General_Purpose, 0x0000);
     mixer_store(s, AC97_Powerdown_Ctrl_Stat, 0x000f);
-
-    mixer_store(s, AC97_Vendor_ID1, 0x8384); /* Use the Realtek ALC665 Configuration */
-    mixer_store(s, AC97_Vendor_ID2, 0x7600);
-    mixer_store(s, AC97_Extended_Audio_ID, 0x09c4);
-    mixer_store(s, AC97_Extended_Audio_Ctrl_Stat, 0x0040);
-
     mixer_store(s, AC97_PCM_Front_DAC_Rate, 0xbb80);
     mixer_store(s, AC97_PCM_Surround_DAC_Rate, 0xbb80);
     mixer_store(s, AC97_PCM_LFE_DAC_Rate, 0xbb80);
@@ -463,9 +466,14 @@ static void mixer_reset(Intel_ICH5_AC97_State *s)
     mixer_store(s, AC97_6Ch_Vol_L_R_Surround_Mute, 0x8080);
     mixer_store(s, AC97_SPDIF_Control, 0x2000);
     mixer_store(s, AC97_SPDIF_DAC_Volume, 0x0808);
-    mixer_store(s, AC97_SPDIF_CEN_LFE_DAC_Volume, 0x0808);
-    mixer_store(s, AC97_Multichannel, 0x0000);
+    mixer_store(s, AC97_Sense_Function_Information, 0x02f1);
+    mixer_store(s, AC97_Sense_Detail, 0x0500);
     mixer_store(s, AC97_Extension_Control, 0x60a0);
+
+    mixer_store(s, AC97_Vendor_ID1, 0x414c); /* Use the Realtek ALC665 Configuration */
+    mixer_store(s, AC97_Vendor_ID2, 0x7460);
+    mixer_store(s, AC97_Extended_Audio_ID, 0x09c4);
+    mixer_store(s, AC97_Extended_Audio_Ctrl_Stat, 0x05f0);
 
     record_select(s, 0);
     set_volume(s, AC97_Master_Volume_Mute, 0x8000);
@@ -514,9 +522,17 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
 {
     Intel_ICH5_AC97_State *s = opaque;
 
-    s->cas = 0;
+    /*
+    
+        Our Codec is Realtek. Mainly we target the functionality of the Realtek ALC665
+
+    */
+
+    s->cas = 0; /* Clear Semaphore to indicate the codec was accessed */
+
     switch (addr) {
-    case AC97_Reset:
+    /* Reset/Power Handlers */
+    case AC97_Reset: /* Reset. Any writes will basically reset the register */
         mixer_reset(s);
         break;
     case AC97_Powerdown_Ctrl_Stat:
@@ -524,46 +540,63 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
         val |= mixer_load(s, addr) & 0xf;
         mixer_store(s, addr, val);
         break;
-    case AC97_PCM_Out_Volume_Mute:
-    case AC97_Master_Volume_Mute:
-    case AC97_Record_Gain_Mute:
+
+    /* Volume Handlers. What Qemu really needs of */
+    case AC97_Master_Volume_Mute: /* Master */
+    case AC97_PCM_Out_Volume_Mute: /* PCM Out */
+    case AC97_Record_Gain_Mute: /* Mic In */
         set_volume(s, addr, val);
         break;
     case AC97_Record_Select:
         record_select(s, val);
         break;
-        break;
+
+    /* Extended Audio Controls */
     case AC97_Extended_Audio_Ctrl_Stat:
-        if (!(val & EACS_VRA)) {
-            mixer_store(s, AC97_PCM_Front_DAC_Rate, 0xbb80);
-            mixer_store(s, AC97_PCM_LR_ADC_Rate,    0xbb80);
-            open_voice(s, PI_INDEX, 48000);
-            open_voice(s, PO_INDEX, 48000);
-        }
-        if (!(val & EACS_VRM)) {
-            mixer_store(s, AC97_MIC_ADC_Rate, 0xbb80);
-            open_voice(s, MC_INDEX, 48000);
-        }
+        mixer_store(s, AC97_PCM_Front_DAC_Rate, 0xbb80); /* At ALC665 datasheet. It's reported that the Front DAC can do up to 96Khz! */
+        mixer_store(s, AC97_PCM_LR_ADC_Rate,    0xbb80);
+        mixer_store(s, AC97_MIC_ADC_Rate, 0xbb80);
+        open_voice(s, PI_INDEX, 48000);
+        open_voice(s, PO_INDEX, 48000);
+        open_voice(s, MC_INDEX, 48000);
         mixer_store(s, AC97_Extended_Audio_Ctrl_Stat, val);
         break;
+
+    /* Audio Interrupt Handler */
+    case AC97_Audio_Int_and_Paging:
+        val &= ~0x8000; /* Global IRQ Handler */
+
+        if(val & 0x1000)
+            qemu_printf("A Sense Cycle is in progress!\n");
+
+        break;
+
     case AC97_PCM_Front_DAC_Rate:
-        if (mixer_load(s, AC97_Extended_Audio_Ctrl_Stat) & EACS_VRA) {
-            mixer_store(s, addr, val);
-            open_voice(s, PO_INDEX, val);
-        }
+        open_voice(s, PO_INDEX, val);
         break;
     case AC97_MIC_ADC_Rate:
-        if (mixer_load(s, AC97_Extended_Audio_Ctrl_Stat) & EACS_VRM) {
-            mixer_store(s, addr, val);
-            open_voice(s, MC_INDEX, val);
-        }
+        open_voice(s, MC_INDEX, val);
         break;
     case AC97_PCM_LR_ADC_Rate:
-        if (mixer_load(s, AC97_Extended_Audio_Ctrl_Stat) & EACS_VRA) {
-            mixer_store(s, addr, val);
-            open_voice(s, PI_INDEX, val);
-        }
+        open_voice(s, PI_INDEX, val);
         break;
+
+    /* """Sense""" */
+    case AC97_Sense_Function_Select:
+        mixer_store(s, AC97_Sense_Detail, val);
+
+        /* Now the real speculated deal */
+        s->mixer_data[0x68] |= 0x10; /* Report that the sensed data were handled */
+        s->mixer_data[0x25] |= 0x20; /* Report that a Sense Interrupt was generated. The Global one is handled by the IRQ Router */
+        qemu_set_irq(s->irq, 1); /* Raise an interrupt */
+        break;
+
+    case AC97_Sense_Function_Information:
+        val &= ~0x0010; /* Clear the Status Bit */
+        mixer_store(s, AC97_Sense_Function_Information, val);
+        break;
+
+    /* These Functions are not emulated or route to read only bits */
     case AC97_Headphone_Volume_Mute:
     case AC97_Master_Volume_Mono_Mute:
     case AC97_Master_Tone_RL:
@@ -577,15 +610,13 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
     case AC97_Record_Gain_Mic_Mute:
     case AC97_General_Purpose:
     case AC97_3D_Control:
-    case AC97_Extended_Audio_ID:
+    case AC97_SPDIF_DAC_Volume:
     case AC97_Vendor_ID1:
     case AC97_Vendor_ID2:
     case AC97_6Ch_Vol_C_LFE_Mute:
-    case AC97_Multichannel:
-    case AC97_Audio_Int_and_Paging:
-        /* None of the features in these regs are emulated, so they are RO */
+        /* Ignore */
         break;
-    default:
+    default: /* Whatever value we don't know or care tb written at */
         mixer_store(s, addr, val);
         break;
     }
@@ -1114,15 +1145,17 @@ static const VMStateDescription vmstate_intel_ich5_ac97 = {
 
 static uint64_t nam_read(void *opaque, hwaddr addr, unsigned size)
 {
-    if ((addr / size) > 256) {
+    if ((addr / size) > 512) {
         return -1;
     }
-    qemu_printf("Reading NAM 0x%02x, len %d\n", (int)addr, (int)size);
+    uint16_t val = 0;
     switch (size) {
     case 1:
         return nam_readb(opaque, addr);
     case 2:
-        return nam_readw(opaque, addr);
+        val = nam_readw(opaque, addr);
+        qemu_printf("Reading NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (uint16_t)val);
+        return val;
     case 4:
         return nam_readl(opaque, addr);
     default:
@@ -1133,10 +1166,10 @@ static uint64_t nam_read(void *opaque, hwaddr addr, unsigned size)
 static void nam_write(void *opaque, hwaddr addr, uint64_t val,
                       unsigned size)
 {
-    if ((addr / size) > 256) {
+    if ((addr / size) > 512) {
         return;
     }
-    qemu_printf("Writing NAM 0x%02x, len %d\n", (int)addr, (int)size);
+    qemu_printf("Writing NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (int)val);
     switch (size) {
     case 1:
         nam_writeb(opaque, addr, val);
@@ -1162,10 +1195,10 @@ static const MemoryRegionOps ac97_io_nam_ops = {
 
 static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
 {
-    if ((addr / size) > 64) {
+    if ((addr / size) > 256) {
         return -1;
     }
-    qemu_printf("Reading NABM 0x%02x, len %d\n", (int)addr, (int)size);
+//    qemu_printf("Reading NABM 0x%02x, len %d\n", (int)addr, (int)size);
     switch (size) {
     case 1:
         return nabm_readb(opaque, addr);
@@ -1181,10 +1214,10 @@ static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
 static void nabm_write(void *opaque, hwaddr addr, uint64_t val,
                        unsigned size)
 {
-    if ((addr / size) > 64) {
+    if ((addr / size) > 256) {
         return;
     }
-    qemu_printf("Writing NABM 0x%02x, len %d\n", (int)addr, (int)size);
+//    qemu_printf("Writing NABM 0x%02x, len %d\n", (int)addr, (int)size);
     switch (size) {
     case 1:
         nabm_writeb(opaque, addr, val);
@@ -1333,7 +1366,7 @@ static void intel_ich5_ac97_realize(PCIDevice *dev, Error **errp)
 {
     Intel_ICH5_AC97_State *s = INTEL_ICH5_AC97(dev);
 
-    if (!AUD_register_card("intel-ich5-ac97", &s->card, errp)) {
+    if (!AUD_register_card("intel-ich5-ac97", &s->card, errp)) { /* Form the sound device */
         return;
     }
 
@@ -1349,6 +1382,8 @@ static void intel_ich5_ac97_realize(PCIDevice *dev, Error **errp)
     dev->config[0x50] = 0x01;
     dev->config[0x52] = 0xc2;
     dev->config[0x53] = 0xc9;
+
+    s->irq = qemu_allocate_irq(intel_ich5_ac97_raise_irq, s, 0); /* IRQ Handler */
 
     /* Native Audio Mixer */
     memory_region_init_io(&s->io_nam, OBJECT(s), &ac97_io_nam_ops, s, "nam", 256);

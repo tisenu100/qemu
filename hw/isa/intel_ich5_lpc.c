@@ -68,7 +68,7 @@ static void intel_ich5_acpi(int msb, int lsb, int en, Intel_ICH5_ACPI_State *acp
     memory_region_transaction_commit();
 }
 
-static int intel_ich5_sci_table(Intel_ICH5_LPC_State *lpc, int num)
+static int intel_ich5_sci_table(Intel_ICH5_LPC_State *lpc, int num) /* Contains all IRQs that can be assigned to the SCI trigger */
 {
     PCIDevice *dev = PCI_DEVICE(lpc);
    
@@ -99,7 +99,7 @@ static void intel_ich5_acpi_irq(int val, Intel_ICH5_LPC_State *lpc)
 
     qemu_set_irq(acpi->irq, 0); /* Dispatch the SCI IRQ so we can update it */
     acpi->sci_irq = intel_ich5_sci_table(lpc, dev->config[0x44] & 7);
-    qemu_set_irq(acpi->irq, 1); /* Now update it */
+    qemu_set_irq(acpi->irq, 1); /* Now trigger it */
 
     qemu_printf("Intel ICH5 LPC: SCI IRQ was updated to IRQ: %d\n", acpi->sci_irq);
 }
@@ -114,7 +114,7 @@ static void intel_ich5_gpio(int msb, int lsb, int en)
         qemu_printf("Intel ICH5 LPC: GPIO is disabled\n");
 }
 
-static int intel_ich5_irq_table(int irq)
+static int intel_ich5_irq_table(int irq) /* Contains all valid PIC IRQs you can apply to a PCI device */
 {   
     switch(irq)
     {
@@ -161,10 +161,8 @@ static void intel_ich5_pirq(int pirq, Intel_ICH5_LPC_State *d) /* The PIRQ Route
 
         d->pic_level = 0;
 
-        if(!enabled)
+        if(!enabled) /* Fallback on APIC in case the PIRQ is not routed to the PIC or is set to an invalid IRQ from the table */
             pic_irq = 16 + pirq;
-
-        qemu_printf("Intel ICH5 LPC: PIRQ %c raised on IRQ %d\n", 'A' + pirq, pic_irq);
 
         d->pic_level |= pci_bus_get_irq_level(pci_get_bus(dev), pirq);
         qemu_set_irq(d->lpc_irqs_in[pic_irq], d->pic_level);

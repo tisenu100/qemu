@@ -75,7 +75,7 @@ static void smb_transaction(PMSMBus *s)
     I2CBus *bus = s->smbus;
     int ret;
 
-    qemu_printf("SMBus trans addr=0x%02x prot=0x%02x\n", addr, prot);
+//    qemu_printf("SMBus trans addr=0x%02x prot=0x%02x\n", addr, prot);
     trace_smbus_transaction(addr, prot);
     /* Transaction isn't exec if STS_DEV_ERR bit set */
     if ((s->smb_stat & STS_DEV_ERR) != 0)  {
