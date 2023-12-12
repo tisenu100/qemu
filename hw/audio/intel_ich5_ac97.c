@@ -139,7 +139,6 @@ struct Intel_ICH5_AC97_State {
     SWVoiceIn *voice_mc2;
     int invalid_freq[3];
     uint8_t silence[128];
-    qemu_irq irq;
     int bup_flag;
     MemoryRegion io_nam;
     MemoryRegion io_nabm;
@@ -237,10 +236,10 @@ static void update_sr(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r, uin
 
     if (level) {
         s->glob_sta |= masks[r - s->bm_regs];
-        qemu_set_irq(s->irq, 1);
+        pci_irq_assert(&s->dev);
     } else {
         s->glob_sta &= ~masks[r - s->bm_regs];
-        qemu_set_irq(s->irq, 0);
+        pci_irq_deassert(&s->dev);
     }
 }
 
@@ -278,20 +277,6 @@ static void reset_bm_regs(Intel_ICH5_AC97_State *s, Intel_ICH5_AC97_BM_State *r)
 
     voice_set_active(s, r - s->bm_regs, 0);
     memset(s->silence, 0, sizeof(s->silence));
-}
-
-static void intel_ich5_ac97_raise_irq(void *opaque, int n, int level)
-{
-    Intel_ICH5_AC97_State *s = opaque;
-    PCIDevice *dev = PCI_DEVICE(opaque);
-    
-    if(s->mixer_data[0x25] & 0x04) /* Check if interrupts can be raised in first place */
-        level = 1;
-
-    if(level)
-        s->mixer_data[0x25] |= 0x80; /* Inform that an IRQ was raised */
-
-    pci_set_irq(dev, level);
 }
 
 static void mixer_store(Intel_ICH5_AC97_State *s, uint32_t i, uint16_t v)
@@ -420,14 +405,17 @@ static void set_volume(Intel_ICH5_AC97_State *s, int index, uint32_t val)
 {
     switch (index) {
     case AC97_Master_Volume_Mute:
+        val &= 0x9f1f;
         mixer_store(s, index, val);
         update_combined_volume_out(s);
         break;
     case AC97_PCM_Out_Volume_Mute:
+        val &= 0x9f1f;
         mixer_store(s, index, val);
         update_combined_volume_out(s);
         break;
     case AC97_Record_Gain_Mute:
+        val &= 0x8f0f;
         mixer_store(s, index, val);
         update_volume_in(s);
         break;
@@ -471,7 +459,7 @@ static void mixer_reset(Intel_ICH5_AC97_State *s)
     mixer_store(s, AC97_Extension_Control, 0x60a0);
 
     mixer_store(s, AC97_Vendor_ID1, 0x414c); /* Use the Realtek ALC665 Configuration */
-    mixer_store(s, AC97_Vendor_ID2, 0x7460);
+    mixer_store(s, AC97_Vendor_ID2, 0x4760);
     mixer_store(s, AC97_Extended_Audio_ID, 0x09c4);
     mixer_store(s, AC97_Extended_Audio_Ctrl_Stat, 0x05f0);
 
@@ -565,10 +553,6 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
     /* Audio Interrupt Handler */
     case AC97_Audio_Int_and_Paging:
         val &= ~0x8000; /* Global IRQ Handler */
-
-        if(val & 0x1000)
-            qemu_printf("A Sense Cycle is in progress!\n");
-
         break;
 
     case AC97_PCM_Front_DAC_Rate:
@@ -587,8 +571,6 @@ static void nam_writew(void *opaque, uint32_t addr, uint32_t val)
 
         /* Now the real speculated deal */
         s->mixer_data[0x68] |= 0x10; /* Report that the sensed data were handled */
-        s->mixer_data[0x25] |= 0x20; /* Report that a Sense Interrupt was generated. The Global one is handled by the IRQ Router */
-        qemu_set_irq(s->irq, 1); /* Raise an interrupt */
         break;
 
     case AC97_Sense_Function_Information:
@@ -1382,8 +1364,6 @@ static void intel_ich5_ac97_realize(PCIDevice *dev, Error **errp)
     dev->config[0x50] = 0x01;
     dev->config[0x52] = 0xc2;
     dev->config[0x53] = 0xc9;
-
-    s->irq = qemu_allocate_irq(intel_ich5_ac97_raise_irq, s, 0); /* IRQ Handler */
 
     /* Native Audio Mixer */
     memory_region_init_io(&s->io_nam, OBJECT(s), &ac97_io_nam_ops, s, "nam", 256);
