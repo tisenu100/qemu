@@ -1811,27 +1811,29 @@ x86_cpu_def_get_versions(const X86CPUDefinition *def)
 
     return def->versions ?: default_version_list;
 }
-/*
+
 static const CPUCaches netburst_cache_info = {
     .l1d_cache = &(CPUCacheInfo) {
         .type = DATA_CACHE,
         .level = 1,
         .size = 16 * KiB,
         .line_size = 64,
-        .associativity = 8,
+        .associativity = 4,
+        .lines_per_tag = 1,
         .self_init = 1,
         .partitions = 1,
-        .sets = 32,
+        .sets = 64,
     },
     .l1i_cache = &(CPUCacheInfo) {
         .type = INSTRUCTION_CACHE,
         .level = 1,
         .size = 12 * KiB,
         .line_size = 64,
-        .associativity = 4,
+        .associativity = 8,
+        .lines_per_tag = 1,
         .self_init = 1,
         .partitions = 1,
-        .sets = 48,
+        .sets = 24,
     },
     .l2_cache = &(CPUCacheInfo) {
         .type = UNIFIED_CACHE,
@@ -1839,6 +1841,7 @@ static const CPUCaches netburst_cache_info = {
         .size = 512 * KiB,
         .line_size = 64,
         .associativity = 8,
+        .lines_per_tag = 1,
         .partitions = 1,
         .sets = 1024,
     },
@@ -1848,11 +1851,12 @@ static const CPUCaches netburst_cache_info = {
         .size = 2 * MiB,
         .line_size = 64,
         .associativity = 8,
+        .lines_per_tag = 1,
         .partitions = 1,
-        .sets = 2048,
+        .sets = 4096,
     },
 };
-*/
+
 static const CPUCaches epyc_cache_info = {
     .l1d_cache = &(CPUCacheInfo) {
         .type = DATA_CACHE,
@@ -2504,7 +2508,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .features[FEAT_8000_0001_ECX] = 0x00000000,
         .features[FEAT_8000_0001_EDX] = 0x00000000,
         .xlevel = 0x80000008,
-//        .cache_info = &netburst_cache_info,
+        .cache_info = &netburst_cache_info,
         .model_id = "Intel(R) Pentium(R) 4 CPU 3.40GHz",
     },
     {

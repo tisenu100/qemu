@@ -493,7 +493,7 @@ static uint32_t nam_readl(void *opaque, uint32_t addr)
 {
     Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
-    return ~0U;
+    return (mixer_load(s, addr + 1) << 16) | mixer_load(s, addr);
 }
 
 /**
@@ -608,6 +608,30 @@ static void nam_writel(void *opaque, uint32_t addr, uint32_t val)
 {
     Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
+
+    for(int i = 0; i < 2; i++) {
+        switch(addr + i) {
+            /* The Windows drivers are trying to do long writes... */
+            case AC97_PCM_Front_DAC_Rate:
+                mixer_store(s, AC97_PCM_Front_DAC_Rate, (val >> (i * 16)) & 0x0000ffff);
+                open_voice(s, PO_INDEX, (val >> (i * 16)) & 0x0000ffff);
+            break;
+
+            case AC97_MIC_ADC_Rate:
+                mixer_store(s, AC97_MIC_ADC_Rate, (val >> (i * 16)) & 0x0000ffff);
+                open_voice(s, MC_INDEX, (val >> (i * 16)) & 0x0000ffff);
+            break;
+
+            case AC97_PCM_LR_ADC_Rate:
+                mixer_store(s, AC97_PCM_LR_ADC_Rate, (val >> (i * 16)) & 0x0000ffff);
+                open_voice(s, PI_INDEX, (val >> (i * 16)) & 0x0000ffff);
+            break;
+
+            default:
+                mixer_store(s, addr + i, (val >> (i * 16)) & 0x0000ffff);
+            break;
+        }
+    }
 }
 
 /**
@@ -1130,7 +1154,7 @@ static uint64_t nam_read(void *opaque, hwaddr addr, unsigned size)
     if ((addr / size) > 512) {
         return -1;
     }
-    uint16_t val = 0;
+    uint32_t val = 0;
     switch (size) {
     case 1:
         return nam_readb(opaque, addr);
@@ -1139,7 +1163,9 @@ static uint64_t nam_read(void *opaque, hwaddr addr, unsigned size)
         qemu_printf("Reading NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (uint16_t)val);
         return val;
     case 4:
-        return nam_readl(opaque, addr);
+        val = nam_readl(opaque, addr);
+        qemu_printf("Reading NAM 0x%02x, len %d 0x%08x\n", (int)addr, (int)size, val);
+        return val;
     default:
         return -1;
     }
@@ -1151,16 +1177,17 @@ static void nam_write(void *opaque, hwaddr addr, uint64_t val,
     if ((addr / size) > 512) {
         return;
     }
-    qemu_printf("Writing NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (int)val);
     switch (size) {
     case 1:
         nam_writeb(opaque, addr, val);
         break;
     case 2:
         nam_writew(opaque, addr, val);
+        qemu_printf("Writing NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (int)val);
         break;
     case 4:
         nam_writel(opaque, addr, val);
+        qemu_printf("Writing NAM 0x%02x, len %d 0x%08x\n", (int)addr, (int)size, (int)val);
         break;
     }
 }
@@ -1177,10 +1204,10 @@ static const MemoryRegionOps ac97_io_nam_ops = {
 
 static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
 {
-    if ((addr / size) > 256) {
+    if ((addr / size) > 1024) {
         return -1;
     }
-//    qemu_printf("Reading NABM 0x%02x, len %d\n", (int)addr, (int)size);
+    qemu_printf("Reading NABM 0x%02x, len %d\n", (int)addr, (int)size);
     switch (size) {
     case 1:
         return nabm_readb(opaque, addr);
@@ -1196,10 +1223,10 @@ static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
 static void nabm_write(void *opaque, hwaddr addr, uint64_t val,
                        unsigned size)
 {
-    if ((addr / size) > 256) {
+    if ((addr / size) > 1024) {
         return;
     }
-//    qemu_printf("Writing NABM 0x%02x, len %d\n", (int)addr, (int)size);
+    qemu_printf("Writing NABM 0x%02x, len %d\n", (int)addr, (int)size);
     switch (size) {
     case 1:
         nabm_writeb(opaque, addr, val);
