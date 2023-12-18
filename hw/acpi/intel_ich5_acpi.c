@@ -66,7 +66,7 @@ struct pci_status {
 /* Global SMI Trigger */
 static void intel_ich5_provoke_smi(Intel_ICH5_ACPI_State *s)
 {
-    if (s->smi_irq) { /* The SMI Interrupt is set the the pc_init code */
+    if (s->smi_irq && (s->smi_w[0] & 1) && !s->smi_lock) { /* The SMI Interrupt is set the the pc_init code */
         qemu_printf("Intel ICH5 ACPI: An SMI interrupt was provoked!\n");
         qemu_irq_raise(s->smi_irq);
     }
@@ -501,7 +501,9 @@ static void intel_ich5_acpi_reset(DeviceState *dev)
     acpi_update_sci(&s->ar, s->irq);
 
     smi_handler_reset(s);
+    s->smi_lock = 0;
 
+    /* SMBus PCI Controller */
     d->config[0x06] = 0x80;
     d->config[0x07] = 0x02;
     d->config[0x20] = 0x01;
@@ -529,21 +531,17 @@ static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
     s->smb.opaque = s;
     s->smb_io_base = 0;
     pci_register_bar(dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &s->smb.io);
-    qemu_printf("Intel ICH5 SMBus: SMBus is up!\n");
 
     /* ACPI */
     memory_region_init(&s->io, OBJECT(s), "intel-ich5-acpi", 0x7f);
     memory_region_set_enabled(&s->io, false);
     memory_region_add_subregion(pci_address_space_io(dev), s->io_base, &s->io);
-    qemu_printf("Intel ICH5 ACPI: ACPI is starting!\n");
 
     /* APM */
     apm_init(dev, &s->apm, apm_ctrl_changed, s);
-    qemu_printf("Intel ICH5 ACPI: APM\n");
 
     /* Event Handler */
     acpi_pm1_evt_init(&s->ar, pm_tmr_timer, &s->io);
-    qemu_printf("Intel ICH5 ACPI: ACPI PM Event Handler\n");
 
     /* Control */
     qemu_register_wakeup_notifier(&s->ar.wakeup);
@@ -551,29 +549,23 @@ static void intel_ich5_acpi_realize(PCIDevice *dev, Error **errp)
     s->ar.wakeup.notify = acpi_notify_wakeup;
     memory_region_init_io(&s->ar.pm1.cnt.io, memory_region_owner(&s->io), &pm1_cnt_ops, s, "acpi_pm1_cnt", 2);
     memory_region_add_subregion(&s->io, 0x04, &s->ar.pm1.cnt.io);
-    qemu_printf("Intel ICH5 ACPI: ACPI PM Control\n");
 
     /* Timer */
     acpi_pm_tmr_init(&s->ar, pm_tmr_timer, &s->io);
-    qemu_printf("Intel ICH5 ACPI: ACPI Timer\n");
 
     /* General Purpose Events */
     memory_region_init_io(&s->io_gpe, memory_region_owner(&s->io), &gpe_ops, s, "acpi_gpe", 4);
     memory_region_add_subregion(&s->io, 0x2c, &s->io_gpe);
     acpi_gpe_init(&s->ar, 4);
-    qemu_printf("Intel ICH5 ACPI: ACPI GPE\n");
 
     /* SMI Handler */
     memory_region_init_io(&s->smi_io, memory_region_owner(&s->io), &intel_ich5_acpi_smi_handler_ops, s, "acpi_smi", 8);
     memory_region_add_subregion(&s->io, 0x30, &s->smi_io);
-    qemu_printf("Intel ICH5 ACPI: SMI Handler\n");
+    s->smi_lock = 0; /* SMI_LOCK is handled by the LPC */
 
     /* SMI Trap Handler */
     memory_region_init_io(&s->smi_trap_io, memory_region_owner(&s->io), &intel_ich5_acpi_smi_trap_ops, s, "acpi_smi_trap", 2);
     memory_region_add_subregion(&s->io, 0x48, &s->smi_trap_io);
-    qemu_printf("Intel ICH5 ACPI: SMI Trap Handler\n");
-
-    qemu_printf("Intel ICH5 ACPI: ACPI has started!\n");
 
     /* Notifiers for Qemu */
     s->powerdown_notifier.notify = intel_ich5_acpi_powerdown_req;

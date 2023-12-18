@@ -493,7 +493,7 @@ static uint32_t nam_readl(void *opaque, uint32_t addr)
 {
     Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
-    return (mixer_load(s, addr + 1) << 16) | mixer_load(s, addr);
+    return (mixer_load(s, addr + 2) << 16) | mixer_load(s, addr);
 }
 
 /**
@@ -609,29 +609,8 @@ static void nam_writel(void *opaque, uint32_t addr, uint32_t val)
     Intel_ICH5_AC97_State *s = opaque;
     s->cas = 0;
 
-    for(int i = 0; i < 2; i++) {
-        switch(addr + i) {
-            /* The Windows drivers are trying to do long writes... */
-            case AC97_PCM_Front_DAC_Rate:
-                mixer_store(s, AC97_PCM_Front_DAC_Rate, (val >> (i * 16)) & 0x0000ffff);
-                open_voice(s, PO_INDEX, (val >> (i * 16)) & 0x0000ffff);
-            break;
-
-            case AC97_MIC_ADC_Rate:
-                mixer_store(s, AC97_MIC_ADC_Rate, (val >> (i * 16)) & 0x0000ffff);
-                open_voice(s, MC_INDEX, (val >> (i * 16)) & 0x0000ffff);
-            break;
-
-            case AC97_PCM_LR_ADC_Rate:
-                mixer_store(s, AC97_PCM_LR_ADC_Rate, (val >> (i * 16)) & 0x0000ffff);
-                open_voice(s, PI_INDEX, (val >> (i * 16)) & 0x0000ffff);
-            break;
-
-            default:
-                mixer_store(s, addr + i, (val >> (i * 16)) & 0x0000ffff);
-            break;
-        }
-    }
+    nam_writew(s, addr, val & 0x0000ffff);
+    nam_writew(s, addr + 2, (val >> 16) & 0x0000ffff);
 }
 
 /**
@@ -1160,11 +1139,11 @@ static uint64_t nam_read(void *opaque, hwaddr addr, unsigned size)
         return nam_readb(opaque, addr);
     case 2:
         val = nam_readw(opaque, addr);
-        qemu_printf("Reading NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (uint16_t)val);
+//        qemu_printf("Reading NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (uint16_t)val);
         return val;
     case 4:
         val = nam_readl(opaque, addr);
-        qemu_printf("Reading NAM 0x%02x, len %d 0x%08x\n", (int)addr, (int)size, val);
+//        qemu_printf("Reading NAM 0x%02x, len %d 0x%08x\n", (int)addr, (int)size, val);
         return val;
     default:
         return -1;
@@ -1204,7 +1183,7 @@ static const MemoryRegionOps ac97_io_nam_ops = {
 
 static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
 {
-    if ((addr / size) > 1024) {
+    if ((addr / size) > 512) {
         return -1;
     }
     qemu_printf("Reading NABM 0x%02x, len %d\n", (int)addr, (int)size);
@@ -1223,7 +1202,8 @@ static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
 static void nabm_write(void *opaque, hwaddr addr, uint64_t val,
                        unsigned size)
 {
-    if ((addr / size) > 1024) {
+    if ((addr / size) > 512) {
+        qemu_printf("Illegal NABM Write 0x%02x, len %d\n", (int)addr, (int)size);
         return;
     }
     qemu_printf("Writing NABM 0x%02x, len %d\n", (int)addr, (int)size);
@@ -1293,7 +1273,7 @@ static void intel_ich5_ac97_write(PCIDevice *dev, uint32_t address, uint32_t val
             break;
 
             case 0x41:
-                new_val = new_val & 0x01;
+                new_val |= 0x01;
             break;
 
             case 0x54:
@@ -1321,6 +1301,7 @@ static void intel_ich5_ac97_write(PCIDevice *dev, uint32_t address, uint32_t val
         }
 
         if(!ro_only) {
+            qemu_printf("Intel ICH5 AC97: dev->regs[0x%02x] = %02x\n", address + i, new_val);
             dev->config[address + i] = new_val;
         }
     }
@@ -1331,32 +1312,28 @@ static void intel_ich5_ac97_write(PCIDevice *dev, uint32_t address, uint32_t val
         case 0x11:
         case 0x12:
         case 0x13:
-            if(dev->config[0x04] & 1)
-                qemu_printf("Intel ICH5 AC97: NAMBAR was updated to 0x%04x\n", (dev->config[0x13] << 24) | (dev->config[0x12] << 16) | (dev->config[0x11] << 8) | (dev->config[0x10] & 0xc0));
+                qemu_printf("Intel ICH5 AC97: NAMBAR was updated to 0x%08x\n", (dev->config[0x13] << 24) | (dev->config[0x12] << 16) | (dev->config[0x11] << 8) | (dev->config[0x10] & 0xc0));
         break;
 
         case 0x14:
         case 0x15:
         case 0x16:
         case 0x17:
-            if(dev->config[0x04] & 1)
-                qemu_printf("Intel ICH5 AC97: NABMBAR was updated to 0x%04x\n", (dev->config[0x17] << 24) | (dev->config[0x16] << 16) | (dev->config[0x15] << 8) | (dev->config[0x14] & 0xc0));
+                qemu_printf("Intel ICH5 AC97: NABMBAR was updated to 0x%08x\n", (dev->config[0x17] << 24) | (dev->config[0x16] << 16) | (dev->config[0x15] << 8) | (dev->config[0x14] & 0xc0));
         break;
 
         case 0x18:
         case 0x19:
         case 0x1a:
         case 0x1b:
-            if(dev->config[0x04] & 2)
-                qemu_printf("Intel ICH5 AC97: MMBAR was updated to 0x%04x\n", (dev->config[0x1b] << 24) | (dev->config[0x1a] << 16) | (dev->config[0x19] << 8) | (dev->config[0x18] & 0xc0));
+                qemu_printf("Intel ICH5 AC97: MMBAR was updated to 0x%08x\n", (dev->config[0x1b] << 24) | (dev->config[0x1a] << 16) | (dev->config[0x19] << 8) | (dev->config[0x18] & 0xc0));
         break;
 
         case 0x1c:
         case 0x1d:
         case 0x1e:
         case 0x1f:
-            if(dev->config[0x04] & 2)
-                qemu_printf("Intel ICH5 AC97: MBBAR was updated to 0x%04x\n", (dev->config[0x1f] << 24) | (dev->config[0x1e] << 16) | (dev->config[0x1d] << 8) | (dev->config[0x1c] & 0xc0));
+                qemu_printf("Intel ICH5 AC97: MBBAR was updated to 0x%08x\n", (dev->config[0x1f] << 24) | (dev->config[0x1e] << 16) | (dev->config[0x1d] << 8) | (dev->config[0x1c] & 0xc0));
         break;
     }
 }
@@ -1388,6 +1365,7 @@ static void intel_ich5_ac97_realize(PCIDevice *dev, Error **errp)
     dev->config[0x34] = 0x50;
     dev->config[0x3d] = 0x02;
     dev->config[0x40] = 0x09;
+    dev->config[0x41] = 0x01;
     dev->config[0x50] = 0x01;
     dev->config[0x52] = 0xc2;
     dev->config[0x53] = 0xc9;
@@ -1398,7 +1376,7 @@ static void intel_ich5_ac97_realize(PCIDevice *dev, Error **errp)
 
     /* Native Audio Bus Mastering */
     memory_region_init_io(&s->io_nabm, OBJECT(s), &ac97_io_nabm_ops, s, "nabm", 64);
-    pci_register_bar(&s->dev, 1, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->io_nabm);
+    pci_register_bar(&s->dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &s->io_nabm);
 
     /* Mixer Base */
     memory_region_init_io(&s->io_mm, OBJECT(s), &ac97_io_nam_ops, s, "mm", 512);

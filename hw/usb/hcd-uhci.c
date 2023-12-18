@@ -36,6 +36,7 @@
 #include "hw/qdev-properties.h"
 #include "qapi/error.h"
 #include "qemu/timer.h"
+#include "qemu/qemu-print.h"
 #include "qemu/iov.h"
 #include "sysemu/dma.h"
 #include "trace.h"
@@ -290,7 +291,7 @@ static UHCIAsync *uhci_async_find_td(UHCIState *s, uint32_t td_addr)
 
 static void uhci_update_irq(UHCIState *s)
 {
-//    PCIDevice *dev = PCI_DEVICE(s);
+    PCIDevice *dev = PCI_DEVICE(s);
 
     int level = 0;
     if (((s->status2 & 1) && (s->intr & (1 << 2))) ||
@@ -301,11 +302,11 @@ static void uhci_update_irq(UHCIState *s)
         (s->status & UHCI_STS_HCPERR)) {
         level = 1;
     }
-// Not yet
-//    if(dev->config[0xc0] & 0x10){ /* Legacy USB SMI */
-//        qemu_set_irq(s->smi_irq, level);
-//    }
-//    else
+
+    if(dev->config[0xc0] & 0x10){ /* Legacy USB SMI */
+        qemu_set_irq(s->smi_irq, level);
+    }
+    else
         qemu_set_irq(s->irq, level);
 }
 

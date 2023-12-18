@@ -185,8 +185,6 @@ static void intel_ich5_nvr(int u128e, int l128lock, int u128lock, Intel_ICH5_LPC
 {
     s->rtc.u128e = !!u128e;
 
-    qemu_printf("Intel ICH5 NVR: Upper 128-byte range %s!\n", u128e ? "enabled" : "disabled");
-
     if(!s->rtc.l128lock) /* Per Intel ICH5 datasheet, once you lock the 38-3F range, you can't unlock unless you reset. */
         s->rtc.l128lock = !!l128lock;
     
@@ -194,9 +192,23 @@ static void intel_ich5_nvr(int u128e, int l128lock, int u128lock, Intel_ICH5_LPC
         s->rtc.u128lock = !!u128lock;
 }
 
+static void intel_ich5_smi_lock(Intel_ICH5_LPC_State *s)
+{
+    PCIDevice *dev = PCI_DEVICE(s);
+    Intel_ICH5_ACPI_State *acpi = s->acpi;
+
+    if(acpi->smi_lock) /* Writes to SMI_LOCK have no effect till a reset is given */
+        return;
+
+    if(dev->config[0xa0] & 0x10){
+        qemu_printf("Intel ICH5 LPC: SMI was locked!\n");
+        acpi->smi_lock = 1;
+    }
+}
+
 static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t val, int len)
 {
-    Intel_ICH5_LPC_State *d = INTEL_ICH5_LPC(dev);
+    Intel_ICH5_LPC_State *s = INTEL_ICH5_LPC(dev);
     pci_default_write_config(dev, address, val, len);
 
     for(int i = 0; i < len; i++){
@@ -422,7 +434,7 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
             dev->config[address + i] = new_val;
 
             if(pme_reg)
-                d->pme_conf[address + i] = new_val;
+                s->pme_conf[address + i] = new_val;
 
             qemu_printf("Intel ICH5 LPC: dev->regs[0x%02x] = %02x\n", address + i, new_val);
         }
@@ -433,8 +445,8 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
         case 0x40:
         case 0x41:
         case 0x44:
-            intel_ich5_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, d->acpi);
-            intel_ich5_acpi_irq(dev->config[0x44], d);
+            intel_ich5_acpi(dev->config[0x41], dev->config[0x40] & 0x80, dev->config[0x44] & 0x10, s->acpi);
+            intel_ich5_acpi_irq(dev->config[0x44], s);
         break;
 
         case 0x58:
@@ -462,11 +474,15 @@ static void intel_ich5_write_config(PCIDevice *dev, uint32_t address, uint32_t v
                0x6a PIRQG#
                0x6b PIRQH#
             */
-            pci_bus_fire_intx_routing_notifier(pci_get_bus(&d->dev));
+            pci_bus_fire_intx_routing_notifier(pci_get_bus(&s->dev));
+        break;
+
+        case 0xa0:
+            intel_ich5_smi_lock(s);
         break;
 
         case 0xd8:
-            intel_ich5_nvr(dev->config[0xd8] & 0x04, dev->config[0xd8] & 0x08, dev->config[0xd8] & 0x10, d);
+            intel_ich5_nvr(dev->config[0xd8] & 0x04, dev->config[0xd8] & 0x08, dev->config[0xd8] & 0x10, s);
         break;
     }
 
@@ -484,9 +500,6 @@ static void intel_ich5_lpc_reset(DeviceState *s)
 {
     Intel_ICH5_LPC_State *d = INTEL_ICH5_LPC(s);
     PCIDevice *dev = PCI_DEVICE(d);
-
-    for(int i = 0x40; i < 0xf3; i++)
-        dev->config[i] = 0x00;
 
     dev->config[0x04] = 0x0f;
     dev->config[0x06] = 0x80;
@@ -637,8 +650,8 @@ static void intel_ich5_realize(PCIDevice *dev, Error **errp)
 
     /* PCI PME Registers */
         memset(d->pme_conf, 0, sizeof(d->pme_conf));
-        dev->config[0x40] = 0x01;
-        dev->config[0xa8] = 0x0d;
+        d->pme_conf[0x40] = 0x01;
+        d->pme_conf[0xa8] = 0x0d;
 }
 
 static void intel_ich5_lpc_init(Object *obj)

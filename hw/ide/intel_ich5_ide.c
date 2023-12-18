@@ -188,8 +188,12 @@ static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
                 new_val = new_val & 0x33;
             break;
 
+            case 0x54:
+                new_val = 0xff; /* Always report an 80-conductor cable in */
+            break;
+
             case 0x55:
-                new_val = new_val & 0xf0;
+                new_val = 0xf0; /* Always report ATA-100 */
             break;
 
             case 0x56:
@@ -205,7 +209,6 @@ static void intel_ich5_ide_write(PCIDevice *dev, uint32_t address, uint32_t val,
             case 0x40:
             case 0x42:
             case 0x44:
-            case 0x54:
                 break;
 
             default:
@@ -239,6 +242,8 @@ static void intel_ich5_ide_reset(DeviceState *s)
     dev->config[0x1c] = 0x01;
     dev->config[0x20] = 0x01;
     dev->config[0x3d] = 0x01;
+    dev->config[0x54] = 0xff;
+    dev->config[0x55] = 0xf0;
 
     ide_bus_reset(&d->bus[0]);
     ide_bus_reset(&d->bus[1]);

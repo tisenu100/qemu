@@ -57,6 +57,7 @@ struct Intel_ICH5_ACPI_State {
 
     /* SMI Controller */
     MemoryRegion smi_io;
+    bool smi_lock;
     uint8_t smi_w[4];
     uint8_t smi_s[4];
 

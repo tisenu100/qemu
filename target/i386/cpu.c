@@ -2507,7 +2507,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
         .features[FEAT_8000_0001_ECX] = 0x00000000,
         .features[FEAT_8000_0001_EDX] = 0x00000000,
-        .xlevel = 0x80000008,
+        .xlevel = 0x80000004,
         .cache_info = &netburst_cache_info,
         .model_id = "Intel(R) Pentium(R) 4 CPU 3.40GHz",
     },
@@ -2523,7 +2523,7 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .features[FEAT_8000_0001_ECX] = 0x00000000,
         .features[FEAT_8000_0001_EDX] = 0x00100000,
         .xlevel = 0x80000008,
-//        .cache_info = &netburst_cache_info,
+        .cache_info = &netburst_cache_info,
         .model_id = "Intel(R) Pentium(R) 4 CPU 3.73GHz",
     },
     {

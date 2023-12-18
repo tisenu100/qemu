@@ -300,6 +300,7 @@ static void pc_init1(MachineState *machine)
 
     /* Now that we have the MCH & the Hub. Unleash the Bridges */
     /* Note: Bus resides are according to the board we target  */
+    /* The PCI to CSA bridge is not utilized by anybody        */
 
     /* AGP Bridge residing on Bus 1 */
     PCIDevice *intel_865pe_agp = pci_new(PCI_DEVFN(0x01, 0), TYPE_INTEL_865PE_AGP);
@@ -307,16 +308,10 @@ static void pc_init1(MachineState *machine)
     pci_bridge_map_irq(agp_bridge, "pci.1", lpc_pirq); /* We don't have a dedicated AGP router considering we don't actually use AGP at all */
     pci_realize_and_unref(intel_865pe_agp, pci_bus, &error_fatal);
 
-    /* CSA Bridge residing on Bus 2 */
-    PCIDevice *intel_865pe_csa = pci_new(PCI_DEVFN(0x03, 0), TYPE_INTEL_865PE_CSA);
-    PCIBridge *csa_bridge = PCI_BRIDGE(intel_865pe_csa);
-    pci_bridge_map_irq(csa_bridge, "pci.2", lpc_pirq);
-    pci_realize_and_unref(intel_865pe_csa, pci_bus, &error_fatal);
-
-    /* Hub Bridge residing on Bus 3 */
+    /* Hub Bridge residing on Bus 2 */
     PCIDevice *intel_ich5_hub = pci_new(PCI_DEVFN(0x1e, 0), TYPE_INTEL_ICH5_HUB);
     PCIBridge *hub_bridge = PCI_BRIDGE(intel_ich5_hub);
-    pci_bridge_map_irq(hub_bridge, "pci.3", hub_pirq);
+    pci_bridge_map_irq(hub_bridge, "pci.2", hub_pirq);
     pci_realize_and_unref(intel_ich5_hub, pci_bus, &error_fatal);
 
     /* Now that we got the basics up. Let's load our basic components */
@@ -392,6 +387,7 @@ static void pc_init1(MachineState *machine)
     int modules;
 
     /* Intel ICH5 Compatible AC'97 */
+    /* There should've been a modem there too but we ain't utilizing it */
     pci_create_simple(pci_bus, PCI_DEVFN(0x1f, 5), TYPE_INTEL_ICH5_AC97);
 
     /* Initialize the Serial Presence Detect data. Mostly Serial Presence Detection used by modern BIOS to determine RAM */
