@@ -1138,13 +1138,9 @@ static uint64_t nam_read(void *opaque, hwaddr addr, unsigned size)
     case 1:
         return nam_readb(opaque, addr);
     case 2:
-        val = nam_readw(opaque, addr);
-//        qemu_printf("Reading NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (uint16_t)val);
-        return val;
-    case 4:
-        val = nam_readl(opaque, addr);
-//        qemu_printf("Reading NAM 0x%02x, len %d 0x%08x\n", (int)addr, (int)size, val);
-        return val;
+        return nam_readw(opaque, addr);
+    case 4: 
+        return nam_readl(opaque, addr);;
     default:
         return -1;
     }
@@ -1162,11 +1158,9 @@ static void nam_write(void *opaque, hwaddr addr, uint64_t val,
         break;
     case 2:
         nam_writew(opaque, addr, val);
-        qemu_printf("Writing NAM 0x%02x, len %d 0x%04x\n", (int)addr, (int)size, (int)val);
         break;
     case 4:
         nam_writel(opaque, addr, val);
-        qemu_printf("Writing NAM 0x%02x, len %d 0x%08x\n", (int)addr, (int)size, (int)val);
         break;
     }
 }
@@ -1186,7 +1180,7 @@ static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
     if ((addr / size) > 512) {
         return -1;
     }
-    qemu_printf("Reading NABM 0x%02x, len %d\n", (int)addr, (int)size);
+
     switch (size) {
     case 1:
         return nabm_readb(opaque, addr);
@@ -1202,11 +1196,10 @@ static uint64_t nabm_read(void *opaque, hwaddr addr, unsigned size)
 static void nabm_write(void *opaque, hwaddr addr, uint64_t val,
                        unsigned size)
 {
-    if ((addr / size) > 512) {
-        qemu_printf("Illegal NABM Write 0x%02x, len %d\n", (int)addr, (int)size);
+    if ((addr / size) > 256) {
         return;
     }
-    qemu_printf("Writing NABM 0x%02x, len %d\n", (int)addr, (int)size);
+
     switch (size) {
     case 1:
         nabm_writeb(opaque, addr, val);
@@ -1256,8 +1249,14 @@ static void intel_ich5_ac97_write(PCIDevice *dev, uint32_t address, uint32_t val
                 new_val |= 0x02;
             break;
 
+            case 0x10:
+                new_val = new_val & 0xc0;
+                new_val |= 0x01;
+            break;
+
             case 0x14:
                 new_val = new_val & 0xc0;
+                new_val |= 0x01;
             break;
 
             case 0x2c:
@@ -1362,6 +1361,10 @@ static void intel_ich5_ac97_realize(PCIDevice *dev, Error **errp)
     dev->config[0x14] = 0x01;
     dev->config[0x18] = 0x01;
     dev->config[0x1c] = 0x01;
+    dev->config[0x2c] = 0x00;
+    dev->config[0x2d] = 0x00;
+    dev->config[0x2e] = 0x00;
+    dev->config[0x2f] = 0x00;
     dev->config[0x34] = 0x50;
     dev->config[0x3d] = 0x02;
     dev->config[0x40] = 0x09;
