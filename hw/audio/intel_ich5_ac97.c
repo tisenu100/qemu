@@ -381,7 +381,7 @@ static void update_combined_volume_out(Intel_ICH5_AC97_State *s)
     uint8_t lvol, rvol, plvol, prvol;
     int mute, pmute;
 
-    get_volume(mixer_load(s, AC97_Master_Volume_Mute), 0x1f, 0, &mute, &lvol, &rvol);
+    get_volume(mixer_load(s, AC97_Master_Volume_Mute), 0x1f, 1, &mute, &lvol, &rvol);
     get_volume(mixer_load(s, AC97_PCM_Out_Volume_Mute), 0x1f, 1, &pmute, &plvol, &prvol);
 
     mute = mute | pmute;
