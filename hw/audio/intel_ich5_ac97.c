@@ -1133,7 +1133,7 @@ static uint64_t nam_read(void *opaque, hwaddr addr, unsigned size)
     if ((addr / size) > 512) {
         return -1;
     }
-    uint32_t val = 0;
+
     switch (size) {
     case 1:
         return nam_readb(opaque, addr);
