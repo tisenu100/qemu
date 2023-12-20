@@ -77,7 +77,13 @@
 #define PC_CPU_MODEL_IDS(v) \
     { "qemu32-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },\
     { "qemu64-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },\
-    { "athlon-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },
+    { "athlon-" TYPE_X86_CPU, "model-id", "QEMU Virtual CPU version " v, },\
+    { "netburst-" TYPE_X86_CPU, "l3-cache", "off"}, /* Pentium 4 processors except Extreme Editions lacked L3 Cache */\
+    { "netburst_x64-" TYPE_X86_CPU, "l3-cache", "off"},\
+    { "netburst-" TYPE_X86_CPU, "vendor", "GenuineIntel"}, /* Enforce the GenuineIntel string on Pentium 4's */\
+    { "netburst_x64-" TYPE_X86_CPU, "vendor", "GenuineIntel"},\
+    { "netburst-" TYPE_X86_CPU, "host-cache-info", "off" }, /* Never parse host cache info for the Pentium 4's */\
+    { "netburst_x64-" TYPE_X86_CPU, "host-cache-info", "off" },
 
 GlobalProperty pc_compat_8_0[] = {
     { "virtio-mem", "unplugged-inaccessible", "auto" },

@@ -93,6 +93,8 @@ struct CPUID2CacheDescriptorInfo cpuid2_cache_descriptors[] = {
                .associativity = 8,  .line_size = 64, },
     [0x30] = { .level = 1, .type = INSTRUCTION_CACHE, .size =  32 * KiB,
                .associativity = 8,  .line_size = 64, },
+    [0x40] = { .level = 2, .type = UNIFIED_CACHE,     .size =   1 * MiB, /* Pentium 4 L2 Cache */
+               .associativity = 8,  .line_size = 64, },
     [0x41] = { .level = 2, .type = UNIFIED_CACHE,     .size = 128 * KiB,
                .associativity = 4,  .line_size = 32, },
     [0x42] = { .level = 2, .type = UNIFIED_CACHE,     .size = 256 * KiB,
@@ -128,10 +130,12 @@ struct CPUID2CacheDescriptorInfo cpuid2_cache_descriptors[] = {
                .associativity = 4,  .line_size = 64, },
     [0x68] = { .level = 1, .type = DATA_CACHE,        .size =  32 * KiB,
                .associativity = 4,  .line_size = 64, },
+    [0x70] = { .level = 1, .type = INSTRUCTION_CACHE, .size =  12 * KiB, /* Pentium 4 L1 Instruction Cache */
+               .associativity = 8,  .line_size = 64, },
     [0x78] = { .level = 2, .type = UNIFIED_CACHE,     .size =   1 * MiB,
                .associativity = 4,  .line_size = 64, },
     /* lines per sector is not supported cpuid2_cache_descriptor(),
-    * so descriptors 0x79, 0x7A, 0x7B, 0x7C are not included.
+    * so descriptors 0x79, 0x7A, 0x7C are not included.
     */
     [0x7D] = { .level = 2, .type = UNIFIED_CACHE,     .size =   2 * MiB,
                .associativity = 8,  .line_size = 64, },
@@ -1818,11 +1822,11 @@ static const CPUCaches netburst_cache_info = {
         .level = 1,
         .size = 16 * KiB,
         .line_size = 64,
-        .associativity = 4,
+        .associativity = 8,
         .lines_per_tag = 1,
         .self_init = 1,
         .partitions = 1,
-        .sets = 64,
+        .sets = 32,
     },
     .l1i_cache = &(CPUCacheInfo) {
         .type = INSTRUCTION_CACHE,
@@ -1838,16 +1842,61 @@ static const CPUCaches netburst_cache_info = {
     .l2_cache = &(CPUCacheInfo) {
         .type = UNIFIED_CACHE,
         .level = 2,
-        .size = 512 * KiB,
+        .size = 1 * MiB,
         .line_size = 64,
         .associativity = 8,
         .lines_per_tag = 1,
         .partitions = 1,
-        .sets = 1024,
+        .sets = 2048,
     },
-    .l3_cache = &(CPUCacheInfo) {
+    .l3_cache = &(CPUCacheInfo) { /* Used only on Pentium 4 Extreme Edition */
         .type = UNIFIED_CACHE,
         .level = 1,
+        .size = 2 * MiB,
+        .line_size = 64,
+        .associativity = 8,
+        .lines_per_tag = 1,
+        .partitions = 1,
+        .sets = 4096,
+    },
+};
+
+static const CPUCaches netburst_x64_cache_info = {
+    .l1d_cache = &(CPUCacheInfo) {
+        .type = DATA_CACHE,
+        .level = 1,
+        .size = 16 * KiB,
+        .line_size = 64,
+        .associativity = 8,
+        .lines_per_tag = 1,
+        .self_init = 1,
+        .partitions = 1,
+        .sets = 32,
+    },
+    .l1i_cache = &(CPUCacheInfo) {
+        .type = INSTRUCTION_CACHE,
+        .level = 1,
+        .size = 12 * KiB,
+        .line_size = 64,
+        .associativity = 8,
+        .lines_per_tag = 1,
+        .self_init = 1,
+        .partitions = 1,
+        .sets = 24,
+    },
+    .l2_cache = &(CPUCacheInfo) {
+        .type = UNIFIED_CACHE,
+        .level = 2,
+        .size = 2 * MiB,
+        .line_size = 64,
+        .associativity = 8,
+        .lines_per_tag = 1,
+        .partitions = 1,
+        .sets = 4096,
+    },
+    .l3_cache = &(CPUCacheInfo) { /* Used only on Pentium 4 Extreme Edition */
+        .type = UNIFIED_CACHE,
+        .level = 3,
         .size = 2 * MiB,
         .line_size = 64,
         .associativity = 8,
@@ -2497,34 +2546,53 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .model_id = "",
     },
     {
-        .name = "netburst", /* Intel Pentium 4 Extreme Edition */
-        .level = 5,
-        .vendor = CPUID_VENDOR_INTEL,
-        .family = 15,
-        .model = 2,
-        .stepping = 5,
-        .features[FEAT_1_ECX] = 0x00000000, /* 0x00004400 */
-        .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
-        .features[FEAT_8000_0001_ECX] = 0x00000000,
-        .features[FEAT_8000_0001_EDX] = 0x00000000,
-        .xlevel = 0x80000004,
-        .cache_info = &netburst_cache_info,
-        .model_id = "Intel(R) Pentium(R) 4 CPU 3.40GHz",
-    },
-    {
-        .name = "netburst_x64", /* Intel Pentium 4 Extreme Edition */
+        .name = "netburst", /* Intel Pentium 4 Prescott */
         .level = 5,
         .vendor = CPUID_VENDOR_INTEL,
         .family = 15,
         .model = 4,
-        .stepping = 3,
-        .features[FEAT_1_ECX] = 0x00002001, /* 0x0000649d */
+        .stepping = 1,
+        .features[FEAT_1_ECX] = 0x0000009, /* 0x0000441d */
+        .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
+        .features[FEAT_8000_0001_ECX] = 0x00000000,
+        .features[FEAT_8000_0001_EDX] = 0x00000000,
+        .features[FEAT_8000_0007_EDX] = 0x00000000,
+        .features[FEAT_8000_0008_EBX] = 0x00000000,
+        .xlevel = 0x80000008,
+        .cache_info = &netburst_cache_info,
+        .model_id = "Intel(R) Pentium(R) 4 CPU 3.00GHz",
+    },
+    {
+        .name = "netburst_x64", /* Intel Pentium 4 640 (Prescott-2M) */
+        .level = 5,
+        .vendor = CPUID_VENDOR_INTEL,
+        .family = 15,
+        .model = 4,
+        .stepping = 10,
+        .features[FEAT_1_ECX] = 0x00002009, /* 0x0000649d */
         .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
         .features[FEAT_8000_0001_ECX] = 0x00000000,
         .features[FEAT_8000_0001_EDX] = 0x00100000,
         .xlevel = 0x80000008,
+        .cache_info = &netburst_x64_cache_info,
+        .model_id = "Intel(R) Pentium(R) 4 CPU 3.20GHz",
+    },
+    {
+        .name = "netburb", /* Intel Pinium 5 ReAl */
+        .level = 5,
+        .vendor = CPUID_VENDOR_INTEL,
+        .family = 15,
+        .model = 4,
+        .stepping = 1,
+        .features[FEAT_1_ECX] = 0x0000009, /* 0x0000441d */
+        .features[FEAT_1_EDX] = 0x0fcbfbff, /* 0xbfebfbff */
+        .features[FEAT_8000_0001_ECX] = 0x00000000,
+        .features[FEAT_8000_0001_EDX] = 0x00000000,
+        .features[FEAT_8000_0007_EDX] = 0x00000000,
+        .features[FEAT_8000_0008_EBX] = 0x00000000,
+        .xlevel = 0x80000008,
         .cache_info = &netburst_cache_info,
-        .model_id = "Intel(R) Pentium(R) 4 CPU 3.73GHz",
+        .model_id = "Intel(R) Pentium(R) 5 TRW Edition",
     },
     {
         .name = "athlon",

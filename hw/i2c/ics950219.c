@@ -95,7 +95,7 @@ static int ics950219_write(SMBusDevice *dev, uint8_t *buf, uint8_t len)
         switch(d->state) {
             case 0: /* Beggining Byte Location N. Where the RW will start at */
                 d->loc = buf[i];
-                qemu_printf("ICS: I'll rw from 0x%02x\n", d->loc);
+                qemu_printf("ICS: Base Register Address set 0x%02x\n", d->loc);
 
                 d->state++;
             break;
@@ -103,7 +103,7 @@ static int ics950219_write(SMBusDevice *dev, uint8_t *buf, uint8_t len)
             case 1: /* Byte Size R/W N. How many Bits will by RW'd */
                 d->n = buf[i];
                 d->counter = 0; /* Prepare the counter */
-                qemu_printf("ICS: I'll rw %d bytes\n", d->n);
+                qemu_printf("ICS: Size %d bytes\n", d->n);
 
                 if(d->n == 0) /* Sanity check in case 0 bytes are given */
                     d->state = 0;
@@ -115,7 +115,7 @@ static int ics950219_write(SMBusDevice *dev, uint8_t *buf, uint8_t len)
                 uint8_t addr = d->loc + d->counter; /* Location Given + Counted */
 
                 if(addr > 0x17) /* In case a board uses a incompatible ICS chip it may write the unknown registers */
-                    qemu_printf("ICS: Buffer Overflow 0x%02x is invalid. Are you using another clock chip?\n", addr);
+                    qemu_printf("ICS: Buffer Overflow. Address 0x%02x is invalid. Are you using another clock chip?\n", addr);
                 else {
                     d->regs[addr] = buf[i]; /* Normally there are reserved bits & ro bits. We speculate BIOS awareness on that */
                 }
