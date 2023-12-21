@@ -85,6 +85,12 @@
     { "netburst-" TYPE_X86_CPU, "host-cache-info", "off" }, /* Never parse host cache info for the Pentium 4's */\
     { "netburst_x64-" TYPE_X86_CPU, "host-cache-info", "off" },
 
+GlobalProperty pc_compat_8_2[] = {};
+const size_t pc_compat_8_2_len = G_N_ELEMENTS(pc_compat_8_2);
+
+GlobalProperty pc_compat_8_1[] = {};
+const size_t pc_compat_8_1_len = G_N_ELEMENTS(pc_compat_8_1);
+
 GlobalProperty pc_compat_8_0[] = {
     { "virtio-mem", "unplugged-inaccessible", "auto" },
 };

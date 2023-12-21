@@ -96,10 +96,7 @@ static void intel_ich5_acpi_irq(int val, Intel_ICH5_LPC_State *lpc)
 {
     Intel_ICH5_ACPI_State *acpi = lpc->acpi;
     PCIDevice *dev = PCI_DEVICE(lpc);
-
-    qemu_set_irq(acpi->irq, 0); /* Dispatch the SCI IRQ so we can update it */
     acpi->sci_irq = intel_ich5_sci_table(lpc, dev->config[0x44] & 7);
-    qemu_set_irq(acpi->irq, 1); /* Now trigger it */
 
     qemu_printf("Intel ICH5 LPC: SCI IRQ was updated to IRQ: %d\n", acpi->sci_irq);
 }

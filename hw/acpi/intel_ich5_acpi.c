@@ -77,12 +77,10 @@ static void pm_tmr_timer(ACPIREGS *ar)
 {
     Intel_ICH5_ACPI_State *s = container_of(ar, Intel_ICH5_ACPI_State, ar);
 
-    if((ar->pm1.evt.en & 1) && (ar->pm1.cnt.cnt & 1)) {
+    if((ar->pm1.evt.en & 1) && (ar->pm1.cnt.cnt & 1))
         acpi_update_sci(&s->ar, s->irq);
-    }
-    else if(ar->pm1.evt.en & 1) {
+    else if(ar->pm1.evt.en & 1)
         intel_ich5_provoke_smi(s);
-    }
 }
 
 /* APM Control */
