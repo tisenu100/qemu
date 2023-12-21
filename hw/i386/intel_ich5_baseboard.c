@@ -470,7 +470,7 @@ static void pc_init1(MachineState *machine)
     } \
     DEFINE_PC_MACHINE(suffix, name, pc_init_##suffix, optionfn)
 
-static void pc_ich5_machine_options(MachineClass *m)
+static void intel_ich5_baseboard_machine_options(MachineClass *m)
 {
     PCMachineClass *pcmc = PC_MACHINE_CLASS(m);
     pcmc->pci_root_uid = 0;
@@ -484,11 +484,11 @@ static void pc_ich5_machine_options(MachineClass *m)
     machine_class_allow_dynamic_sysbus_dev(m, TYPE_VMBUS_BRIDGE);
 }
 
-static void pc_ich5_8_2_machine_options(MachineClass *m)
+static void intel_ich5_baseboard_9_0_machine_options(MachineClass *m)
 {
-    pc_ich5_machine_options(m);
+    intel_ich5_baseboard_machine_options(m);
     m->alias = "intel-ich5-baseboard";
     m->is_default = true;
 }
 
-DEFINE_INTEL_ICH5_MACHINE(v8_2, "intel-ich5-baseboard-8.2", NULL, pc_ich5_8_2_machine_options);
+DEFINE_INTEL_ICH5_MACHINE(v9_0, "intel-ich5-baseboard-8.2", NULL, intel_ich5_baseboard_9_0_machine_options);
